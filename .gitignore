@@ -1,0 +1,11 @@
+.env
+venv/
+__pycache__/
+*.pyc
+# canvas.db is committed so Vercel has data — do NOT add sensitive credentials
+session_cookies.json
+api_token.txt
+downloads/
+files_cache/
+screenshots/
+*.DS_Store
