@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block topbar %}
+  <span class="text-gray-300 font-medium">Dashboard</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-6 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-2xl font-bold text-gray-800">My Courses</h1>
+    <span class="text-sm text-gray-500">{{ courses|length }} courses</span>
+  </div>
+
+  <!-- Course cards grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+    {% for course in courses %}
+    <a href="/courses/{{ course.id }}/modules"
+       class="group bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden block">
+
+      <!-- Color banner -->
+      <div class="h-3" style="background-color: {{ course.color }};"></div>
+
+      <!-- Card body -->
+      <div class="p-4">
+        <!-- Course code badge -->
+        <div class="text-xs font-medium text-gray-500 mb-1">{{ course.course_code }}</div>
+
+        <!-- Course name -->
+        <h2 class="font-bold text-gray-800 text-sm leading-snug mb-3 group-hover:text-canvas-blue transition-colors line-clamp-3"
+            style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+          {{ course.name }}
+        </h2>
+
+        <!-- Stats row -->
+        <div class="flex items-center gap-3 text-xs text-gray-500 border-t border-gray-100 pt-3 mt-auto">
+          <span class="flex items-center gap-1">
+            <!-- Assignment icon -->
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            {{ course.assignment_count }} assignments
+          </span>
+          {% if course.upcoming > 0 %}
+          <span class="ml-auto flex items-center gap-1 text-orange-500 font-medium">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            {{ course.upcoming }} pending
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Quick nav footer -->
+      <div class="bg-gray-50 border-t border-gray-100 px-4 py-2 flex gap-3 text-xs text-gray-500">
+        <a href="/courses/{{ course.id }}/modules"
+           class="hover:text-canvas-blue transition-colors" onclick="event.stopPropagation()">Modules</a>
+        <a href="/courses/{{ course.id }}/assignments"
+           class="hover:text-canvas-orange transition-colors" onclick="event.stopPropagation()">Assignments</a>
+        <a href="/courses/{{ course.id }}/grades"
+           class="hover:text-green-600 transition-colors" onclick="event.stopPropagation()">Grades</a>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if not courses %}
+  <div class="text-center py-20 text-gray-400">
+    <svg class="w-16 h-16 mx-auto mb-4 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+        d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+    </svg>
+    <p class="text-lg font-medium mb-2">No courses found</p>
+    <p class="text-sm">Run <code class="bg-gray-100 px-1 rounded">python main.py sync</code> to fetch data</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Canvas{% endblock %} – Kent State</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            canvas: {
+              nav: '#2D3B45',
+              orange: '#E66000',
+              blue: '#0770A3',
+              light: '#F5F5F5',
+              border: '#C7CDD1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Badge styles */
+    .badge-graded   { @apply bg-green-100 text-green-800; }
+    .badge-submitted{ @apply bg-blue-100 text-blue-800; }
+    .badge-missing  { @apply bg-red-100 text-red-800; }
+    .badge-gray     { @apply bg-gray-100 text-gray-600; }
+
+    .grade-a { color: #16a34a; }
+    .grade-b { color: #0284c7; }
+    .grade-c { color: #ca8a04; }
+    .grade-d { color: #dc2626; }
+    .grade-none { color: #6b7280; }
+
+    /* Module item type icons color */
+    .type-Page        { color: #0770A3; }
+    .type-Assignment  { color: #E66000; }
+    .type-Quiz        { color: #8B2FA8; }
+    .type-Discussion  { color: #127A1B; }
+    .type-File        { color: #5a6670; }
+    .type-ExternalUrl { color: #0E7E6B; }
+    .type-ExternalTool{ color: #0E7E6B; }
+
+    /* Smooth scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #c7cdd1; border-radius: 3px; }
+
+    /* Canvas page content */
+    .canvas-body img { max-width: 100%; border-radius: 4px; }
+    .canvas-body a { color: #0770A3; text-decoration: underline; }
+    .canvas-body h1, .canvas-body h2, .canvas-body h3 { font-weight: 700; margin: 1rem 0 0.5rem; }
+    .canvas-body p { margin-bottom: 0.75rem; line-height: 1.6; }
+    .canvas-body ul, .canvas-body ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+    .canvas-body table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+    .canvas-body td, .canvas-body th { border: 1px solid #c7cdd1; padding: 8px 12px; }
+    .canvas-body th { background: #f5f5f5; }
+  </style>
+</head>
+<body class="bg-canvas-light min-h-screen">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-canvas-nav text-white h-14 flex items-center px-4 shadow-md fixed top-0 left-0 right-0 z-50">
+    <a href="/" class="flex items-center gap-2 font-bold text-lg mr-6 hover:opacity-90 transition-opacity">
+      <div class="w-8 h-8 bg-canvas-orange rounded flex items-center justify-center text-white font-bold text-sm">C</div>
+      <span class="hidden sm:block">Canvas</span>
+    </a>
+
+    <!-- Breadcrumb area / search -->
+    <div class="flex-1">
+      {% block topbar %}{% endblock %}
+    </div>
+
+    <div class="flex items-center gap-3 text-sm">
+      <a href="/" class="hover:text-canvas-orange transition-colors px-2 py-1 rounded">
+        Dashboard
+      </a>
+      <span class="text-gray-400">|</span>
+      <span class="text-gray-300 text-xs">Kent State</span>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <div class="flex pt-14 min-h-screen">
+    {% block sidebar %}{% endblock %}
+
+    <!-- Main content -->
+    <main class="flex-1 min-w-0">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2"></div>
+
+  <script>
+    function showToast(msg, type = 'success') {
+      const t = document.createElement('div');
+      const colors = {
+        success: 'bg-green-600',
+        error: 'bg-red-600',
+        info: 'bg-blue-600'
+      };
+      t.className = `${colors[type] || colors.info} text-white px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs transition-all`;
+      t.textContent = msg;
+      document.getElementById('toast-container').appendChild(t);
+      setTimeout(() => t.classList.add('opacity-0'), 2500);
+      setTimeout(() => t.remove(), 3000);
+    }
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
