@@ -7,7 +7,7 @@ import json
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort, Response, stream_with_context
 from html.parser import HTMLParser
 from storage.database import (
     get_conn, get_courses, get_assignments, get_assignment,
@@ -295,6 +295,10 @@ def assignment_detail(course_id, assignment_id):
     is_submittable = is_quiz or is_text or is_upload
     quiz_id = raw.get("quiz_id")
 
+    # Context sources (lecture/reading pages in same module)
+    from agent.assignment_agent import gather_module_context
+    ctx = gather_module_context(assignment_id)
+
     return render_template("assignment.html",
         course=course, courses=courses,
         assignment=assignment,
@@ -309,6 +313,9 @@ def assignment_detail(course_id, assignment_id):
         quiz_id=quiz_id,
         due_fmt=fmt_date(assignment.get("due_at", "")),
         canvas_url=f"https://kent.instructure.com/courses/{course_id}/assignments/{assignment_id}",
+        module_name=ctx.get("module_name") or "",
+        ctx_sources=ctx.get("sources") or [],
+        ctx_pages=ctx.get("pages") or [],
     )
 
 
@@ -343,26 +350,67 @@ def page_view(course_id, slug):
 
 @app.route("/api/complete/<int:assignment_id>", methods=["POST"])
 def api_complete(assignment_id):
-    """Call AI to generate answer for an assignment. Returns JSON with text."""
+    """SSE stream: progress steps then final answer."""
     from config import OPENAI_API_KEY
     if not OPENAI_API_KEY:
-        return jsonify({"error": "Cần OPENAI_API_KEY trong .env để dùng tính năng AI"}), 400
+        return jsonify({"error": "Cần OPENAI_API_KEY trong .env"}), 400
 
     assignment = get_assignment(assignment_id)
     if not assignment:
         return jsonify({"error": "Assignment not found"}), 404
 
-    try:
-        from agent.assignment_agent import complete_assignment
-        # complete_assignment uses console output for interactive stuff
-        # We capture just the return value
-        draft = complete_assignment(assignment_id)
-        if draft:
-            return jsonify({"draft": draft})
-        else:
-            return jsonify({"error": "AI không tạo được câu trả lời"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    def generate():
+        import json as _json
+        steps = []
+        result_holder = {}
+
+        def progress_cb(msg):
+            steps.append(msg)
+            event = _json.dumps({"type": "progress", "msg": msg})
+            yield f"data: {event}\n\n"
+
+        # We can't directly yield inside the callback since we're in a different
+        # scope, so collect then stream via a queue approach
+        import queue, threading
+
+        q = queue.Queue()
+
+        def cb(msg):
+            q.put(("progress", msg))
+
+        def run_ai():
+            from agent.assignment_agent import complete_assignment
+            try:
+                answer = complete_assignment(assignment_id, progress_cb=cb)
+                q.put(("done", answer))
+            except Exception as e:
+                q.put(("error", str(e)))
+
+        t = threading.Thread(target=run_ai, daemon=True)
+        t.start()
+
+        while True:
+            try:
+                kind, val = q.get(timeout=120)
+            except queue.Empty:
+                yield f"data: {_json.dumps({'type':'error','msg':'Timeout'})}\n\n"
+                break
+
+            if kind == "progress":
+                yield f"data: {_json.dumps({'type':'progress','msg':val})}\n\n"
+            elif kind == "done":
+                if val:
+                    yield f"data: {_json.dumps({'type':'done','draft':val})}\n\n"
+                else:
+                    yield f"data: {_json.dumps({'type':'error','msg':'AI không tạo được câu trả lời'})}\n\n"
+                break
+            elif kind == "error":
+                yield f"data: {_json.dumps({'type':'error','msg':val})}\n\n"
+                break
+
+    return Response(stream_with_context(generate()),
+                    mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/api/submit/<int:assignment_id>", methods=["POST"])
