@@ -315,7 +315,6 @@ def assignment_detail(course_id, assignment_id):
         canvas_url=f"https://kent.instructure.com/courses/{course_id}/assignments/{assignment_id}",
         module_name=ctx.get("module_name") or "",
         ctx_sources=ctx.get("sources") or [],
-        ctx_pages=ctx.get("pages") or [],
     )
 
 
