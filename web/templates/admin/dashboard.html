@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard — Canvas AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- Topbar -->
+  <header class="bg-gray-900 border-b border-gray-800 h-14 flex items-center px-6 gap-4">
+    <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center flex-shrink-0">
+      <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+    </div>
+    <span class="font-bold text-white">Canvas AI — Admin</span>
+    <span class="text-gray-500 text-xs ml-1">localhost only</span>
+    <div class="flex-1"></div>
+    <a href="/admin/logout" class="text-xs text-gray-400 hover:text-red-400 transition-colors">Sign out</a>
+  </header>
+
+  <div class="max-w-6xl mx-auto px-6 py-6 space-y-6">
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {% for label, val, color in [
+        ('Total Users', total, 'blue'),
+        ('Canvas Linked', linked, 'green'),
+        ('Admins', admins, 'purple'),
+        ('Banned', banned, 'red'),
+      ] %}
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div class="text-2xl font-bold text-{{ color }}-400">{{ val }}</div>
+        <div class="text-xs text-gray-400 mt-1">{{ label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Users table -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+        <h2 class="font-semibold text-white">Users</h2>
+        {% if syncing %}
+        <span class="text-xs bg-yellow-900/60 text-yellow-300 border border-yellow-700 rounded-full px-2.5 py-0.5">
+          {{ syncing }} syncing…
+        </span>
+        {% endif %}
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-800">
+              <th class="px-5 py-3 text-left">User</th>
+              <th class="px-4 py-3 text-left">Canvas</th>
+              <th class="px-4 py-3 text-left">Sync</th>
+              <th class="px-4 py-3 text-left">Joined</th>
+              <th class="px-4 py-3 text-left">Roles</th>
+              <th class="px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800" id="user-table">
+          {% for u in users %}
+          <tr id="row-{{ u.google_id }}" class="hover:bg-gray-800/40 transition-colors">
+            <!-- User info -->
+            <td class="px-5 py-3">
+              <div class="flex items-center gap-3">
+                {% if u.picture %}
+                <img src="{{ u.picture }}" class="w-8 h-8 rounded-full flex-shrink-0" alt="">
+                {% else %}
+                <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs">
+                  {{ (u.name or u.email or '?')[0].upper() }}
+                </div>
+                {% endif %}
+                <div>
+                  <a href="/admin/users/{{ u.google_id }}/detail"
+                     class="font-medium text-white hover:text-blue-400 transition-colors">
+                    {{ u.name or '—' }}
+                  </a>
+                  <div class="text-xs text-gray-400">{{ u.email }}</div>
+                </div>
+              </div>
+            </td>
+
+            <!-- Canvas account -->
+            <td class="px-4 py-3">
+              {% if u.canvas_linked %}
+              <div class="text-green-400 font-mono text-xs">{{ u.canvas_user }}</div>
+              {% else %}
+              <span class="text-gray-500 text-xs">Not linked</span>
+              {% endif %}
+            </td>
+
+            <!-- Sync status -->
+            <td class="px-4 py-3">
+              {% set st = u.sync_status or 'never' %}
+              {% if st == 'done' %}
+                <span class="text-green-400 text-xs">✓ done</span>
+              {% elif st == 'syncing' %}
+                <span class="text-yellow-400 text-xs animate-pulse">⟳ syncing</span>
+              {% elif st.startswith('error') %}
+                <span class="text-red-400 text-xs" title="{{ st }}">✗ error</span>
+              {% else %}
+                <span class="text-gray-500 text-xs">never</span>
+              {% endif %}
+              {% if u.sync_at %}
+              <div class="text-gray-600 text-xs mt-0.5">{{ u.sync_at[:10] }}</div>
+              {% endif %}
+            </td>
+
+            <!-- Joined -->
+            <td class="px-4 py-3 text-xs text-gray-400">
+              {{ u.created_at[:10] if u.created_at else '—' }}
+            </td>
+
+            <!-- Roles -->
+            <td class="px-4 py-3">
+              <div class="flex gap-1 flex-wrap">
+                {% if u.is_admin %}
+                <span class="bg-purple-900/60 text-purple-300 border border-purple-700 text-xs rounded-full px-2 py-0.5">
+                  Admin
+                </span>
+                {% endif %}
+                {% if u.is_banned %}
+                <span class="bg-red-900/60 text-red-300 border border-red-700 text-xs rounded-full px-2 py-0.5">
+                  Banned
+                </span>
+                {% endif %}
+              </div>
+            </td>
+
+            <!-- Actions -->
+            <td class="px-4 py-3">
+              <div class="flex items-center justify-end gap-2">
+                <!-- Admin toggle -->
+                <button onclick="toggleAdmin('{{ u.google_id }}', {{ 'true' if u.is_admin else 'false' }})"
+                        class="text-xs px-2.5 py-1 rounded-lg border transition-colors
+                               {% if u.is_admin %}border-purple-600 text-purple-400 hover:bg-purple-900/30
+                               {% else %}border-gray-600 text-gray-400 hover:border-purple-600 hover:text-purple-400{% endif %}">
+                  {% if u.is_admin %}Remove Admin{% else %}Make Admin{% endif %}
+                </button>
+
+                <!-- Ban toggle -->
+                <button onclick="toggleBan('{{ u.google_id }}', {{ 'true' if u.is_banned else 'false' }})"
+                        class="text-xs px-2.5 py-1 rounded-lg border transition-colors
+                               {% if u.is_banned %}border-green-600 text-green-400 hover:bg-green-900/30
+                               {% else %}border-gray-600 text-gray-400 hover:border-red-600 hover:text-red-400{% endif %}">
+                  {% if u.is_banned %}Unban{% else %}Ban{% endif %}
+                </button>
+
+                <!-- Resync -->
+                {% if u.canvas_linked %}
+                <button onclick="resync('{{ u.google_id }}')"
+                        class="text-xs px-2.5 py-1 rounded-lg border border-gray-600 text-gray-400
+                               hover:border-blue-600 hover:text-blue-400 transition-colors">
+                  Re-sync
+                </button>
+                {% endif %}
+
+                <!-- Delete -->
+                <button onclick="deleteUser('{{ u.google_id }}', '{{ u.name or u.email }}')"
+                        class="text-xs px-2.5 py-1 rounded-lg border border-gray-600 text-gray-400
+                               hover:border-red-600 hover:text-red-400 transition-colors">
+                  Delete
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="px-5 py-8 text-center text-gray-500">
+              No users yet. Users appear here after signing in with Google.
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Footer info -->
+    <div class="text-xs text-gray-600 text-center pb-4">
+      Admin panel — accessible only from localhost · Canvas AI
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 hidden z-50"></div>
+
+  <script>
+  function showToast(msg, ok = true) {
+    const t = document.getElementById('toast');
+    t.className = `fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl text-sm text-white shadow-lg
+                   ${ok ? 'bg-green-700' : 'bg-red-700'}`;
+    t.textContent = msg;
+    setTimeout(() => t.className = 'fixed bottom-6 right-6 hidden z-50', 2800);
+  }
+
+  async function toggleAdmin(id, isAdmin) {
+    const r = await fetch(`/admin/users/${id}/toggle_admin`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { showToast(d.is_admin ? 'Admin granted' : 'Admin removed'); setTimeout(() => location.reload(), 800); }
+    else showToast(d.error || 'Error', false);
+  }
+
+  async function toggleBan(id, isBanned) {
+    const r = await fetch(`/admin/users/${id}/toggle_ban`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { showToast(d.is_banned ? 'User banned' : 'User unbanned'); setTimeout(() => location.reload(), 800); }
+    else showToast(d.error || 'Error', false);
+  }
+
+  async function resync(id) {
+    const r = await fetch(`/admin/users/${id}/resync`, { method: 'POST' });
+    const d = await r.json();
+    showToast(d.message || d.error || 'Done', !!d.success);
+    if (d.success) setTimeout(() => location.reload(), 1200);
+  }
+
+  async function deleteUser(id, name) {
+    if (!confirm(`Delete "${name}" and all their data? This cannot be undone.`)) return;
+    const r = await fetch(`/admin/users/${id}/delete`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      showToast('User deleted');
+      document.getElementById(`row-${id}`)?.remove();
+    } else {
+      showToast(d.error || 'Error', false);
+    }
+  }
+
+  // Auto-refresh if someone is syncing
+  {% if syncing %}
+  setTimeout(() => location.reload(), 8000);
+  {% endif %}
+  </script>
+</body>
+</html>

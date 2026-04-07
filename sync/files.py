@@ -34,11 +34,15 @@ def _safe_name(name: str) -> str:
 
 
 def sync_files(client: CanvasClient, courses: list, download: bool = True):
+    from config import get_user_downloads_dir, get_user_files_cache_dir
+    downloads_dir  = get_user_downloads_dir()
+    files_cache_dir = get_user_files_cache_dir()
+
     console.print("[blue]Syncing files...[/blue]")
     for course in courses:
         cid = course["id"]
         cname = _safe_name(course.get("name", str(cid)))
-        course_dir = DOWNLOADS_DIR / cname
+        course_dir = downloads_dir / cname
         course_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -50,7 +54,7 @@ def sync_files(client: CanvasClient, courses: list, download: bool = True):
             if skipped:
                 console.print(f"  [dim]Bỏ qua {skipped} video/audio[/dim]")
 
-            files_dir = FILES_CACHE_DIR / str(cid)
+            files_dir = files_cache_dir / str(cid)
             files_dir.mkdir(parents=True, exist_ok=True)
 
             with Progress() as progress:

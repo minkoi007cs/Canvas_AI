@@ -78,8 +78,16 @@
       <a href="/" class="hover:text-canvas-orange transition-colors px-2 py-1 rounded">
         Dashboard
       </a>
+      {% if current_user %}
       <span class="text-gray-400">|</span>
-      <span class="text-gray-300 text-xs">Kent State</span>
+      <div class="flex items-center gap-2">
+        {% if current_user.picture %}
+        <img src="{{ current_user.picture }}" class="w-7 h-7 rounded-full border border-gray-500" alt="">
+        {% endif %}
+        <span class="text-gray-300 text-xs hidden sm:block">{{ current_user.name }}</span>
+        <a href="/logout" class="text-gray-400 hover:text-red-400 text-xs transition-colors ml-1">Sign out</a>
+      </div>
+      {% endif %}
     </div>
   </header>
 
