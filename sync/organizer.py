@@ -25,7 +25,7 @@ from storage.database import (
     get_courses, get_modules, get_module_items,
     get_assignments, get_files, get_conn
 )
-from config import DOWNLOADS_DIR, CANVAS_BASE_URL
+from config import CANVAS_BASE_URL, get_user_downloads_dir
 
 console = Console()
 
@@ -108,6 +108,7 @@ def populate_module_items_from_raw():
 def build_folders():
     """Rebuild toàn bộ folder structure giống Canvas."""
     console.print("[blue]Building folder structure...[/blue]")
+    downloads_dir = get_user_downloads_dir()
 
     # Ensure module_items populated
     populate_module_items_from_raw()
@@ -118,7 +119,7 @@ def build_folders():
     for course in courses:
         cid = course["id"]
         cname = safe(course.get("name", str(cid)))
-        course_dir = DOWNLOADS_DIR / cname
+        course_dir = downloads_dir / cname
         course_dir.mkdir(parents=True, exist_ok=True)
 
         assignments_by_id = {a["id"]: a for a in get_assignments(cid)}
@@ -202,8 +203,8 @@ def build_folders():
             f"({len(modules)} modules, [yellow]{pending_count} pending[/yellow])"
         )
 
-    _write_pending_summary(all_pending)
-    console.print(f"\n[bold green]✓ Done:[/bold green] {DOWNLOADS_DIR}")
+    _write_pending_summary(all_pending, downloads_dir)
+    console.print(f"\n[bold green]✓ Done:[/bold green] {downloads_dir}")
 
 
 # ─── Item writers ─────────────────────────────────────────────────────────────
@@ -493,8 +494,10 @@ def _write_course_index(course_dir, course, modules, assignments_by_id):
 
 # ─── Pending summary ──────────────────────────────────────────────────────────
 
-def _write_pending_summary(pending):
-    dest = DOWNLOADS_DIR / "_PENDING.md"
+def _write_pending_summary(pending, downloads_dir=None):
+    if downloads_dir is None:
+        downloads_dir = get_user_downloads_dir()
+    dest = downloads_dir / "_PENDING.md"
 
     def sort_key(a):
         return a.get("due_at") or "9999"

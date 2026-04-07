@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ user.name }} — Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <header class="bg-gray-900 border-b border-gray-800 h-14 flex items-center px-6 gap-4">
+    <a href="/admin" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+      <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center">
+        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </div>
+      <span class="font-bold text-white">Admin</span>
+    </a>
+    <span class="text-gray-600">/</span>
+    <span class="text-gray-300 text-sm">{{ user.name }}</span>
+    <div class="flex-1"></div>
+    <a href="/admin/logout" class="text-xs text-gray-400 hover:text-red-400 transition-colors">Sign out</a>
+  </header>
+
+  <div class="max-w-3xl mx-auto px-6 py-6 space-y-5">
+
+    <!-- User header -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center gap-4">
+      {% if user.picture %}
+      <img src="{{ user.picture }}" class="w-16 h-16 rounded-full" alt="">
+      {% else %}
+      <div class="w-16 h-16 rounded-full bg-gray-700 flex items-center justify-center text-2xl">
+        {{ (user.name or '?')[0].upper() }}
+      </div>
+      {% endif %}
+      <div class="flex-1">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-xl font-bold text-white">{{ user.name }}</h1>
+          {% if user.is_admin %}
+          <span class="bg-purple-900/60 text-purple-300 border border-purple-700 text-xs rounded-full px-2 py-0.5">Admin</span>
+          {% endif %}
+          {% if user.is_banned %}
+          <span class="bg-red-900/60 text-red-300 border border-red-700 text-xs rounded-full px-2 py-0.5">Banned</span>
+          {% endif %}
+        </div>
+        <div class="text-gray-400 text-sm">{{ user.email }}</div>
+        <div class="text-gray-600 text-xs mt-1">Google ID: {{ user.google_id }}</div>
+      </div>
+    </div>
+
+    <!-- Stats grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {% for label, val in [
+        ('Courses', canvas_stats.get('courses', '—')),
+        ('Assignments', canvas_stats.get('assignments', '—')),
+        ('Files', canvas_stats.get('files', '—')),
+        ('Pages', canvas_stats.get('pages', '—')),
+      ] %}
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+        <div class="text-2xl font-bold text-blue-400">{{ val }}</div>
+        <div class="text-xs text-gray-400 mt-1">{{ label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Details -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wide">Details</h2>
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <div>
+          <dt class="text-gray-500 text-xs mb-0.5">Canvas username</dt>
+          <dd class="font-mono text-green-400">{{ user.canvas_user or '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-gray-500 text-xs mb-0.5">Canvas linked</dt>
+          <dd>{% if user.canvas_linked %}<span class="text-green-400">Yes</span>{% else %}<span class="text-gray-500">No</span>{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="text-gray-500 text-xs mb-0.5">Sync status</dt>
+          <dd class="{% if user.sync_status == 'done' %}text-green-400{% elif user.sync_status == 'syncing' %}text-yellow-400{% elif (user.sync_status or '').startswith('error') %}text-red-400{% else %}text-gray-500{% endif %}">
+            {{ user.sync_status or 'never' }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-gray-500 text-xs mb-0.5">Last synced</dt>
+          <dd class="text-gray-300">{{ user.sync_at or '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-gray-500 text-xs mb-0.5">Joined</dt>
+          <dd class="text-gray-300">{{ user.created_at[:19] if user.created_at else '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-gray-500 text-xs mb-0.5">Data size</dt>
+          <dd class="text-gray-300">{{ "%.1f"|format(data_size_mb) }} MB</dd>
+        </div>
+      </dl>
+    </div>
+
+    <!-- Actions -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wide">Actions</h2>
+      <div class="flex flex-wrap gap-3">
+        <button onclick="toggleAdmin('{{ user.google_id }}', {{ 'true' if user.is_admin else 'false' }})"
+                class="px-4 py-2 rounded-lg border text-sm transition-colors
+                       {% if user.is_admin %}border-purple-600 text-purple-400 hover:bg-purple-900/30
+                       {% else %}border-gray-600 text-gray-300 hover:border-purple-600 hover:text-purple-400{% endif %}">
+          {% if user.is_admin %}Remove Admin{% else %}Grant Admin{% endif %}
+        </button>
+        <button onclick="toggleBan('{{ user.google_id }}', {{ 'true' if user.is_banned else 'false' }})"
+                class="px-4 py-2 rounded-lg border text-sm transition-colors
+                       {% if user.is_banned %}border-green-600 text-green-400 hover:bg-green-900/30
+                       {% else %}border-gray-600 text-gray-300 hover:border-red-600 hover:text-red-400{% endif %}">
+          {% if user.is_banned %}Unban User{% else %}Ban User{% endif %}
+        </button>
+        {% if user.canvas_linked %}
+        <button onclick="resync('{{ user.google_id }}')"
+                class="px-4 py-2 rounded-lg border border-gray-600 text-gray-300
+                       hover:border-blue-600 hover:text-blue-400 transition-colors text-sm">
+          Re-sync Canvas
+        </button>
+        {% endif %}
+        <button onclick="deleteUser('{{ user.google_id }}', '{{ user.name or user.email }}')"
+                class="px-4 py-2 rounded-lg border border-gray-600 text-gray-300
+                       hover:border-red-600 hover:text-red-400 transition-colors text-sm ml-auto">
+          Delete Account
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="fixed bottom-6 right-6 hidden z-50"></div>
+  <script>
+  function showToast(msg, ok = true) {
+    const t = document.getElementById('toast');
+    t.className = `fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl text-sm text-white shadow-lg
+                   ${ok ? 'bg-green-700' : 'bg-red-700'}`;
+    t.textContent = msg;
+    setTimeout(() => t.className = 'fixed bottom-6 right-6 hidden z-50', 2800);
+  }
+  async function toggleAdmin(id, v) {
+    const r = await fetch(`/admin/users/${id}/toggle_admin`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { showToast(d.is_admin ? 'Admin granted' : 'Admin removed'); setTimeout(() => location.reload(), 800); }
+    else showToast(d.error || 'Error', false);
+  }
+  async function toggleBan(id, v) {
+    const r = await fetch(`/admin/users/${id}/toggle_ban`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { showToast(d.is_banned ? 'Banned' : 'Unbanned'); setTimeout(() => location.reload(), 800); }
+    else showToast(d.error || 'Error', false);
+  }
+  async function resync(id) {
+    const r = await fetch(`/admin/users/${id}/resync`, { method: 'POST' });
+    const d = await r.json();
+    showToast(d.message || d.error || 'Done', !!d.success);
+  }
+  async function deleteUser(id, name) {
+    if (!confirm(`Delete "${name}" and ALL their data?`)) return;
+    const r = await fetch(`/admin/users/${id}/delete`, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { showToast('Deleted'); setTimeout(() => window.location = '/admin', 800); }
+    else showToast(d.error || 'Error', false);
+  }
+  </script>
+</body>
+</html>

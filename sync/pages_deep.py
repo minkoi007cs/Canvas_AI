@@ -10,7 +10,7 @@ from pathlib import Path
 from html.parser import HTMLParser
 from rich.console import Console
 from storage.database import get_conn, upsert_page, upsert_file
-from config import CANVAS_BASE_URL, DOWNLOADS_DIR, FILES_CACHE_DIR
+from config import CANVAS_BASE_URL, get_user_files_cache_dir
 
 console = Console()
 
@@ -204,10 +204,10 @@ def _ensure_canvas_file(file_id, course_id, session_cookies, headers):
         if ext in SKIP_EXTS or ctype.startswith(("video/", "audio/")):
             return
 
-        # Determine destination — use FILES_CACHE_DIR (never deleted on rebuild)
+        # Determine destination — use per-user files cache (never deleted on rebuild)
         import re as _re
         safe_name = _re.sub(r'[<>:"/\\|?*]', "_", f.get("display_name") or f.get("filename", str(file_id)))
-        dest_dir = FILES_CACHE_DIR / str(course_id)
+        dest_dir = get_user_files_cache_dir() / str(course_id)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / safe_name
 

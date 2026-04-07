@@ -1,20 +1,38 @@
 """
-SQLite database - lưu toàn bộ dữ liệu Canvas local.
+SQLite database — lưu dữ liệu Canvas per user.
+get_conn() uses thread-local context set by set_user_context().
 """
 import sqlite3
 import json
+import threading
 from pathlib import Path
-from config import DB_PATH
+from config import DB_PATH  # fallback for CLI usage
+
+_local = threading.local()
+
+
+def set_user_context(google_id: str):
+    """Set the current user's DB path for this thread."""
+    from storage.users import user_db_path
+    _local.db_path = str(user_db_path(google_id))
+
+
+def clear_user_context():
+    _local.db_path = None
+
+
+def _active_db_path() -> str:
+    return getattr(_local, "db_path", None) or str(DB_PATH)
 
 
 def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_active_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
-    """Tạo tables nếu chưa có."""
+    """Create tables if not present."""
     conn = get_conn()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS courses (
@@ -25,7 +43,6 @@ def init_db():
             workflow_state TEXT,
             raw JSON
         );
-
         CREATE TABLE IF NOT EXISTS assignments (
             id INTEGER PRIMARY KEY,
             course_id INTEGER,
@@ -39,7 +56,6 @@ def init_db():
             raw JSON,
             FOREIGN KEY (course_id) REFERENCES courses(id)
         );
-
         CREATE TABLE IF NOT EXISTS submissions (
             id INTEGER PRIMARY KEY,
             assignment_id INTEGER,
@@ -55,7 +71,6 @@ def init_db():
             raw JSON,
             FOREIGN KEY (assignment_id) REFERENCES assignments(id)
         );
-
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY,
             course_id INTEGER,
@@ -68,7 +83,6 @@ def init_db():
             raw JSON,
             FOREIGN KEY (course_id) REFERENCES courses(id)
         );
-
         CREATE TABLE IF NOT EXISTS modules (
             id INTEGER PRIMARY KEY,
             course_id INTEGER,
@@ -77,7 +91,6 @@ def init_db():
             raw JSON,
             FOREIGN KEY (course_id) REFERENCES courses(id)
         );
-
         CREATE TABLE IF NOT EXISTS module_items (
             id INTEGER PRIMARY KEY,
             module_id INTEGER,
@@ -90,7 +103,6 @@ def init_db():
             raw JSON,
             FOREIGN KEY (module_id) REFERENCES modules(id)
         );
-
         CREATE TABLE IF NOT EXISTS pages (
             id INTEGER PRIMARY KEY,
             course_id INTEGER,
