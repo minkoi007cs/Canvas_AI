@@ -162,15 +162,26 @@ def _fill_microsoft_email(page, username: str):
             try:
                 inputs = page.locator("input").all()
                 console.print(f"  [dim]Found {len(inputs)} input elements[/dim]")
-                for i, inp in enumerate(inputs[:5]):
+                for i, inp in enumerate(inputs[:10]):
                     try:
                         inp_type = inp.get_attribute("type") or "text"
                         inp_name = inp.get_attribute("name") or "unnamed"
-                        console.print(f"    [dim]  {i}: type={inp_type}, name={inp_name}[/dim]")
+                        inp_id = inp.get_attribute("id") or ""
+                        console.print(f"    [dim]  {i}: type={inp_type}, name={inp_name}, id={inp_id}[/dim]")
                     except:
                         pass
             except Exception as e:
                 console.print(f"  [dim]Could not inspect inputs: {e}[/dim]")
+
+            # Save screenshot for debugging
+            try:
+                from config import BASE_DIR
+                ss = BASE_DIR / "data" / "ms_email_page.png"
+                ss.parent.mkdir(exist_ok=True)
+                page.screenshot(path=str(ss))
+                console.print(f"  [dim]Screenshot: {ss}[/dim]")
+            except Exception as e:
+                console.print(f"  [dim]Screenshot failed: {e}[/dim]")
             return
 
         page.wait_for_timeout(500)  # Small delay before clicking
@@ -268,6 +279,16 @@ def _fill_microsoft_password(page, password: str):
             console.print("  [yellow]✗ Không tìm thấy ô password[/yellow]")
             console.print(f"  [dim]URL: {page.url}[/dim]")
             console.print(f"  [dim]Title: {page.title()}[/dim]")
+
+            # Save screenshot for debugging
+            try:
+                from config import BASE_DIR
+                ss = BASE_DIR / "data" / "ms_password_page.png"
+                ss.parent.mkdir(exist_ok=True)
+                page.screenshot(path=str(ss))
+                console.print(f"  [dim]Screenshot: {ss}[/dim]")
+            except Exception as e:
+                console.print(f"  [dim]Screenshot failed: {e}[/dim]")
             return
 
         page.wait_for_timeout(500)  # Small delay before clicking
