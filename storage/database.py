@@ -85,7 +85,7 @@ def _db_url() -> str:
 
 
 def get_conn() -> PGConn:
-    conn = psycopg2.connect(_db_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(_db_url(), cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=5)
     # Return JSONB columns as raw strings (not auto-parsed dicts)
     # so existing json.loads() calls in the codebase work unchanged.
     psycopg2.extras.register_default_jsonb(conn, loads=lambda x: x)

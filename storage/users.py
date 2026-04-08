@@ -43,7 +43,8 @@ def _db_url() -> str:
 
 
 def get_users_conn():
-    conn = psycopg2.connect(_db_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+    """Connect to DB with timeout to prevent hanging."""
+    conn = psycopg2.connect(_db_url(), cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=5)
     return conn
 
 
