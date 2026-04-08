@@ -121,7 +121,10 @@ def _fill_microsoft_email(page, username: str):
     console.print("  → Điền email Microsoft...")
     try:
         # Wait for page to fully load
-        page.wait_for_load_state("networkidle", timeout=10000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except:
+            console.print("  [dim]networkidle timeout, continuing anyway[/dim]")
 
         # Microsoft dùng input[name='loginfmt'] cho email
         email_selectors = [
@@ -131,6 +134,7 @@ def _fill_microsoft_email(page, username: str):
             "input[name='j_username']",
         ]
         filled = False
+        email_field = None
         for sel in email_selectors:
             try:
                 field = page.locator(sel).first
@@ -142,17 +146,31 @@ def _fill_microsoft_email(page, username: str):
                     field.type(username, delay=10)  # 10ms delay between chars
                     # Verify it was filled
                     value = field.input_value()
-                    console.print(f"  → Điền email ({sel}), value: {value[:20]}...")
+                    console.print(f"  → ✓ Điền email ({sel}), length: {len(value)}")
+                    email_field = field
                     filled = True
                     break
             except Exception as e:
-                console.print(f"  [dim]Selector {sel} failed: {e}[/dim]")
+                console.print(f"  [dim]Selector {sel}: {type(e).__name__}: {e}[/dim]")
                 continue
 
         if not filled:
-            console.print("  [yellow]Không tìm thấy ô email[/yellow]")
-            console.print(f"  [dim]Current URL: {page.url}[/dim]")
-            console.print(f"  [dim]Page title: {page.title()}[/dim]")
+            console.print("  [yellow]✗ Không tìm thấy ô email[/yellow]")
+            console.print(f"  [dim]URL: {page.url}[/dim]")
+            console.print(f"  [dim]Title: {page.title()}[/dim]")
+            # Try to see what's on the page
+            try:
+                inputs = page.locator("input").all()
+                console.print(f"  [dim]Found {len(inputs)} input elements[/dim]")
+                for i, inp in enumerate(inputs[:5]):
+                    try:
+                        inp_type = inp.get_attribute("type") or "text"
+                        inp_name = inp.get_attribute("name") or "unnamed"
+                        console.print(f"    [dim]  {i}: type={inp_type}, name={inp_name}[/dim]")
+                    except:
+                        pass
+            except Exception as e:
+                console.print(f"  [dim]Could not inspect inputs: {e}[/dim]")
             return
 
         page.wait_for_timeout(500)  # Small delay before clicking
@@ -163,13 +181,17 @@ def _fill_microsoft_email(page, username: str):
             "button[type='submit']",
             "input[value='Next']",
             "button:has-text('Next')",
+            "#idSIButton9",  # Microsoft's common button ID
         ]
         clicked = False
+        next_button = None
         for sel in next_selectors:
             try:
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
-                    console.print(f"  → Click Next ({sel})")
+                    console.print(f"  → ✓ Found Next button ({sel})")
+                    console.print(f"  → Click Next...")
+                    next_button = btn
                     btn.click(timeout=5000)
                     # Wait for navigation after click
                     try:
@@ -177,29 +199,32 @@ def _fill_microsoft_email(page, username: str):
                     except:
                         page.wait_for_timeout(3000)  # Fallback timeout
                     clicked = True
+                    console.print(f"  → ✓ Clicked, new URL: {page.url[:80]}")
                     break
             except Exception as e:
-                console.print(f"  [dim]Next button {sel} failed: {e}[/dim]")
+                console.print(f"  [dim]Next button {sel}: {type(e).__name__}[/dim]")
                 continue
 
-        # Fallback: press Enter key
+        # Fallback: press Enter key if button not found
         if not clicked:
             try:
                 console.print("  → Fallback: Press Enter to submit")
+                # Focus on the email field first, then press Enter
+                if email_field:
+                    email_field.focus()
                 page.press("body", "Enter")
-                try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-                except:
-                    page.wait_for_timeout(3000)
+                page.wait_for_timeout(2000)
+                console.print(f"  → ✓ Enter pressed, new URL: {page.url[:80]}")
                 clicked = True
             except Exception as e:
-                console.print(f"  [dim]Enter key failed: {e}[/dim]")
+                console.print(f"  [dim]Enter key failed: {type(e).__name__}: {e}[/dim]")
 
         if not clicked:
-            console.print("  [yellow]Không tìm thấy nút Next[/yellow]")
+            console.print("  [red]✗ Email form submission failed![/red]")
+            console.print(f"  [dim]Still at: {page.url}[/dim]")
 
-    except PlaywrightTimeout:
-        console.print("  [yellow]Timeout điền email[/yellow]")
+    except PlaywrightTimeout as e:
+        console.print(f"  [yellow]✗ Timeout: {e}[/yellow]")
 
 
 def _fill_microsoft_password(page, password: str):
@@ -207,7 +232,10 @@ def _fill_microsoft_password(page, password: str):
     console.print("  → Điền password...")
     try:
         # Wait for page to fully load (Microsoft tách trang email và password)
-        page.wait_for_load_state("networkidle", timeout=10000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except:
+            console.print("  [dim]networkidle timeout, continuing anyway[/dim]")
 
         password_selectors = [
             "input[name='passwd']",
@@ -216,6 +244,7 @@ def _fill_microsoft_password(page, password: str):
             "input[name='password']",
         ]
         filled = False
+        pwd_field = None
         for sel in password_selectors:
             try:
                 field = page.locator(sel).first
@@ -227,17 +256,18 @@ def _fill_microsoft_password(page, password: str):
                     field.type(password, delay=10)  # 10ms delay between chars
                     # Verify it was filled (don't print password!)
                     value = field.input_value()
-                    console.print(f"  → Điền password ({sel}), length: {len(value)}")
+                    console.print(f"  → ✓ Điền password ({sel}), length: {len(value)}")
+                    pwd_field = field
                     filled = True
                     break
             except Exception as e:
-                console.print(f"  [dim]Password selector {sel} failed: {e}[/dim]")
+                console.print(f"  [dim]Password selector {sel}: {type(e).__name__}[/dim]")
                 continue
 
         if not filled:
-            console.print("  [yellow]Không tìm thấy ô password[/yellow]")
-            console.print(f"  [dim]Current URL: {page.url}[/dim]")
-            console.print(f"  [dim]Page title: {page.title()}[/dim]")
+            console.print("  [yellow]✗ Không tìm thấy ô password[/yellow]")
+            console.print(f"  [dim]URL: {page.url}[/dim]")
+            console.print(f"  [dim]Title: {page.title()}[/dim]")
             return
 
         page.wait_for_timeout(500)  # Small delay before clicking
@@ -249,13 +279,15 @@ def _fill_microsoft_password(page, password: str):
             "input[value='Sign in']",
             "button:has-text('Sign in')",
             "button:has-text('Log in')",
+            "#idSIButton9",  # Microsoft's common button ID
         ]
         clicked = False
         for sel in signin_selectors:
             try:
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
-                    console.print(f"  → Click Sign In ({sel})")
+                    console.print(f"  → ✓ Found Sign In button ({sel})")
+                    console.print(f"  → Click Sign In...")
                     btn.click(timeout=5000)
                     # Wait for navigation after click
                     try:
@@ -263,30 +295,31 @@ def _fill_microsoft_password(page, password: str):
                     except:
                         page.wait_for_timeout(3000)  # Fallback timeout
                     clicked = True
+                    console.print(f"  → ✓ Clicked, new URL: {page.url[:80]}")
                     break
             except Exception as e:
-                console.print(f"  [dim]Sign in button {sel} failed: {e}[/dim]")
+                console.print(f"  [dim]Sign in button {sel}: {type(e).__name__}[/dim]")
                 continue
 
-        # Fallback: press Enter key
+        # Fallback: press Enter key if button not found
         if not clicked:
             try:
                 console.print("  → Fallback: Press Enter to submit")
+                if pwd_field:
+                    pwd_field.focus()
                 page.press("body", "Enter")
-                try:
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except:
-                    page.wait_for_timeout(3000)
+                page.wait_for_timeout(2000)
+                console.print(f"  → ✓ Enter pressed, new URL: {page.url[:80]}")
                 clicked = True
             except Exception as e:
-                console.print(f"  [dim]Enter key failed: {e}[/dim]")
+                console.print(f"  [dim]Enter key failed: {type(e).__name__}[/dim]")
 
         if not clicked:
-            console.print("  [yellow]Không tìm thấy nút Sign In[/yellow]")
-            console.print(f"  [dim]Current URL after form fill: {page.url}[/dim]")
+            console.print("  [red]✗ Password form submission failed![/red]")
+            console.print(f"  [dim]Still at: {page.url}[/dim]")
 
-    except PlaywrightTimeout:
-        console.print("  [yellow]Timeout điền password[/yellow]")
+    except PlaywrightTimeout as e:
+        console.print(f"  [yellow]✗ Timeout: {e}[/yellow]")
 
 
 def _handle_mfa(page):
