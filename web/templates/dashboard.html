@@ -113,27 +113,31 @@ async function triggerSync() {
     const r = await fetch('/api/sync', { method: 'POST' });
     const d = await r.json();
     if (d.success) {
-      status.textContent = 'Sync started — reloading when done…';
-      // Poll every 5s until sync_status != 'syncing'
+      status.textContent = 'Đang khởi động…';
+      status.className = 'text-sm text-blue-600 font-medium';
+      // Poll every 3s until sync_status != 'syncing'
       const poll = setInterval(async () => {
         try {
           const pr = await fetch('/api/sync_status');
           const pd = await pr.json();
-          if (pd.status === 'done') {
+          if (pd.status === 'syncing') {
+            status.textContent = '⏳ ' + (pd.step || 'Đang sync...');
+            status.className = 'text-sm text-blue-600 font-medium';
+          } else if (pd.status === 'done') {
             clearInterval(poll);
-            status.textContent = '✓ Sync complete!';
+            status.textContent = '✓ Sync hoàn tất!';
             status.className = 'text-sm text-green-600 font-medium';
             setTimeout(() => location.reload(), 800);
           } else if ((pd.status || '').startsWith('error')) {
             clearInterval(poll);
-            status.textContent = '✗ ' + pd.status;
+            status.textContent = '✗ ' + pd.status.replace('error:', '');
             status.className = 'text-sm text-red-500';
             btn.disabled = false;
             btn.classList.remove('opacity-60', 'cursor-not-allowed');
             icon.classList.remove('animate-spin');
           }
         } catch(e) {}
-      }, 5000);
+      }, 3000);
     } else {
       status.textContent = d.message || 'Error';
       status.className = 'text-sm text-red-500';
