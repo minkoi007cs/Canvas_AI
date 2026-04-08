@@ -1,18 +1,10 @@
-FROM python:3.11-slim
-
-# Install system deps
-RUN apt-get update && apt-get install -y \
-    wget curl gnupg \
-    && rm -rf /var/lib/apt/lists/*
+FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
 
 WORKDIR /app
 
-# Install Python deps first (layer cache)
+# Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install Playwright + Chromium with all deps auto-handled
-RUN playwright install --with-deps chromium
 
 # Copy app code
 COPY . .
