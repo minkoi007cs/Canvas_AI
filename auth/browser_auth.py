@@ -76,43 +76,68 @@ def login(username: str = "", password: str = "", headless: bool = True):
 
 def _fill_login_form(page, username: str, password: str):
     """Fill and submit the Canvas/Shibboleth login form."""
-    page.wait_for_timeout(1000)
+    # Wait for page and any JavaScript to fully load
+    page.wait_for_load_state("networkidle", timeout=15000)
+    page.wait_for_timeout(2000)
 
-    # List of possible selectors for Shibboleth form fields
+    # List of possible selectors for email/username form field
     username_selectors = [
-        "input[name='j_username']",      # Shibboleth standard
+        # Canvas OAuth page (what we're seeing)
+        "input[placeholder*='Email']",
+        "input[placeholder*='username']",
+        "input[name='email']",
+        "input[name='account']",
+        # Shibboleth standard
+        "input[name='j_username']",
         "input#j_username",
         "input[name='username']",
-        "input[type='text']",
+        # Generic fallback
+        "input[type='text']:visible",
+        "input[type='email']",
     ]
 
     password_selectors = [
-        "input[name='j_password']",      # Shibboleth standard
-        "input#j_password",
+        # Canvas OAuth page
+        "input[placeholder*='password']",
+        "input[placeholder*='Password']",
         "input[name='password']",
-        "input[type='password']",
+        # Shibboleth standard
+        "input[name='j_password']",
+        "input#j_password",
+        # Generic
+        "input[type='password']:visible",
     ]
 
     submit_selectors = [
-        "button[type='submit']",
-        "input[type='submit']",
+        "button:has-text('Next')",
         "button:has-text('Sign in')",
         "button:has-text('Login')",
         "button:has-text('Log in')",
+        "button[type='submit']",
+        "input[type='submit']",
     ]
 
-    # Fill username
+    # Fill username/email
     username_filled = False
     for sel in username_selectors:
         try:
             field = page.locator(sel).first
-            if field.is_visible(timeout=3000):
+            if field.is_visible(timeout=2000):
+                # Click the field to focus it
+                field.click()
+                page.wait_for_timeout(300)
+                # Clear any existing value
                 field.clear()
+                # Type the username
                 field.fill(username)
-                console.print(f"  [dim]✓ Username entered[/dim]")
-                username_filled = True
-                break
-        except:
+                page.wait_for_timeout(300)
+                # Verify it was filled
+                val = field.input_value()
+                if val and len(val) > 0:
+                    console.print(f"  [dim]✓ Email/username entered: {sel}[/dim]")
+                    username_filled = True
+                    break
+        except Exception as e:
             continue
 
     if not username_filled:
@@ -151,20 +176,28 @@ def _fill_login_form(page, username: str, password: str):
         console.print(f"")
         raise RuntimeError("Could not find username field on login page")
 
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(500)
 
     # Fill password
     password_filled = False
     for sel in password_selectors:
         try:
             field = page.locator(sel).first
-            if field.is_visible(timeout=3000):
+            if field.is_visible(timeout=5000):  # Longer timeout for password field to appear
+                # Click to focus
+                field.click()
+                page.wait_for_timeout(300)
+                # Clear and fill
                 field.clear()
                 field.fill(password)
-                console.print(f"  [dim]✓ Password entered[/dim]")
-                password_filled = True
-                break
-        except:
+                page.wait_for_timeout(300)
+                # Verify
+                val = field.input_value()
+                if val and len(val) > 0:
+                    console.print(f"  [dim]✓ Password entered: {sel}[/dim]")
+                    password_filled = True
+                    break
+        except Exception as e:
             continue
 
     if not password_filled:
@@ -172,28 +205,35 @@ def _fill_login_form(page, username: str, password: str):
 
     page.wait_for_timeout(300)
 
-    # Click submit button
+    # Click submit/Next button
     submitted = False
     for sel in submit_selectors:
         try:
             btn = page.locator(sel).first
             if btn.is_visible(timeout=2000):
+                console.print(f"  [dim]Clicking: {sel}[/dim]")
                 btn.click()
-                console.print(f"  [dim]✓ Form submitted[/dim]")
+                # Wait for page to change after clicking Next
+                page.wait_for_timeout(2000)
+                console.print(f"  [dim]✓ Next button clicked[/dim]")
                 submitted = True
-                page.wait_for_load_state("domcontentloaded", timeout=30000)
                 break
-        except:
+        except Exception as e:
             continue
 
     if not submitted:
         # Try pressing Enter as fallback
         try:
-            page.press("input[type='password']", "Enter")
+            console.print(f"  [dim]Fallback: Press Enter[/dim]")
+            page.press("input", "Enter")
+            page.wait_for_timeout(2000)
             console.print(f"  [dim]✓ Submitted via Enter key[/dim]")
-            page.wait_for_timeout(3000)
+            submitted = True
         except:
-            raise RuntimeError("Could not submit login form")
+            pass
+
+    if not submitted:
+        raise RuntimeError("Could not submit email form")
 
 
 def _wait_for_canvas_dashboard(page) -> bool:
