@@ -135,8 +135,11 @@ def _fill_microsoft_email(page, username: str):
             try:
                 field = page.locator(sel).first
                 if field.is_visible(timeout=5000):
-                    field.clear()  # Clear any existing text
-                    field.fill(username)
+                    # Focus and clear the field first
+                    field.focus()
+                    field.clear()
+                    # Type character by character for better reliability
+                    field.type(username, delay=10)  # 10ms delay between chars
                     # Verify it was filled
                     value = field.input_value()
                     console.print(f"  → Điền email ({sel}), value: {value[:20]}...")
@@ -154,7 +157,7 @@ def _fill_microsoft_email(page, username: str):
 
         page.wait_for_timeout(500)  # Small delay before clicking
 
-        # Click Next / Submit
+        # Try clicking Next button, or press Enter as fallback
         next_selectors = [
             "input[type='submit']",
             "button[type='submit']",
@@ -167,13 +170,30 @@ def _fill_microsoft_email(page, username: str):
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
                     console.print(f"  → Click Next ({sel})")
-                    btn.click()
-                    page.wait_for_load_state("networkidle", timeout=10000)
+                    btn.click(timeout=5000)
+                    # Wait for navigation after click
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except:
+                        page.wait_for_timeout(3000)  # Fallback timeout
                     clicked = True
                     break
             except Exception as e:
                 console.print(f"  [dim]Next button {sel} failed: {e}[/dim]")
                 continue
+
+        # Fallback: press Enter key
+        if not clicked:
+            try:
+                console.print("  → Fallback: Press Enter to submit")
+                page.press("body", "Enter")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except:
+                    page.wait_for_timeout(3000)
+                clicked = True
+            except Exception as e:
+                console.print(f"  [dim]Enter key failed: {e}[/dim]")
 
         if not clicked:
             console.print("  [yellow]Không tìm thấy nút Next[/yellow]")
@@ -200,8 +220,11 @@ def _fill_microsoft_password(page, password: str):
             try:
                 field = page.locator(sel).first
                 if field.is_visible(timeout=8000):
-                    field.clear()  # Clear any existing text
-                    field.fill(password)
+                    # Focus and clear the field first
+                    field.focus()
+                    field.clear()
+                    # Type character by character for better reliability
+                    field.type(password, delay=10)  # 10ms delay between chars
                     # Verify it was filled (don't print password!)
                     value = field.input_value()
                     console.print(f"  → Điền password ({sel}), length: {len(value)}")
@@ -233,13 +256,30 @@ def _fill_microsoft_password(page, password: str):
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
                     console.print(f"  → Click Sign In ({sel})")
-                    btn.click()
-                    page.wait_for_load_state("networkidle", timeout=15000)
+                    btn.click(timeout=5000)
+                    # Wait for navigation after click
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                    except:
+                        page.wait_for_timeout(3000)  # Fallback timeout
                     clicked = True
                     break
             except Exception as e:
                 console.print(f"  [dim]Sign in button {sel} failed: {e}[/dim]")
                 continue
+
+        # Fallback: press Enter key
+        if not clicked:
+            try:
+                console.print("  → Fallback: Press Enter to submit")
+                page.press("body", "Enter")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                except:
+                    page.wait_for_timeout(3000)
+                clicked = True
+            except Exception as e:
+                console.print(f"  [dim]Enter key failed: {e}[/dim]")
 
         if not clicked:
             console.print("  [yellow]Không tìm thấy nút Sign In[/yellow]")
