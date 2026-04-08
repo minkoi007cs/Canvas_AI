@@ -1,10 +1,10 @@
 """
-Canvas login via Playwright - automates FlashLine SSO login
+Canvas login via Playwright - handles Microsoft account picker
 """
 import json
 import os
 from pathlib import Path
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import sync_playwright
 from rich.console import Console
 from config import CANVAS_BASE_URL, BASE_DIR
 
@@ -17,17 +17,15 @@ def login(username: str = "", password: str = "", headless: bool = True):
     """
     Login to Canvas using Playwright.
 
-    Always uses headless=True for automation since manual login
-    requires user to type credentials which we handle programmatically.
+    Handles Microsoft account picker:
+    1. If account is saved, clicks on it
+    2. If not saved, clicks "Use another account" and fills form
 
     Returns: (cookies, api_token)
     """
-    # ALWAYS use headless mode - no X server available on servers
-    headless = True
+    headless = True  # Always headless on servers
 
     console.print("[bold blue]Logging into Canvas...[/bold blue]")
-    if not headless:
-        console.print("[yellow]⚠️  Browser window will open - complete login manually[/yellow]")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -40,30 +38,39 @@ def login(username: str = "", password: str = "", headless: bool = True):
         page = context.new_page()
 
         try:
-            # 1. Try direct SAML login URL (Kent State's FlashLine method)
-            console.print(f"  → Attempting Canvas SAML login...")
+            # 1. Navigate to Canvas SAML login
+            console.print(f"  → Accessing Canvas login...")
             saml_url = f"{CANVAS_BASE_URL}/login?authentication_provider=saml"
             page.goto(saml_url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)
 
-            # 2. Wait for and fill the email/username field
-            console.print(f"  → Looking for login form...")
-            _fill_login_form(page, username, password)
+            # 2. Handle Microsoft account picker
+            console.print(f"  → Checking for saved accounts...")
+            _handle_account_picker(page, username)
 
-            # 3. Wait for successful login (reach Canvas dashboard or courses page)
-            console.print(f"  → Waiting for Canvas dashboard...")
+            # 3. Fill email form (if "Use another account" was clicked)
+            console.print(f"  → Filling email form...")
+            _fill_email_form(page, username)
+
+            # 4. Fill password form
+            console.print(f"  → Filling password form...")
+            _fill_password_form(page, password)
+
+            # 5. Wait for Canvas dashboard
+            console.print(f"  → Waiting for Canvas...")
             if not _wait_for_canvas_dashboard(page):
-                raise RuntimeError(f"Failed to reach Canvas dashboard. Last URL: {page.url}")
+                raise RuntimeError(f"Failed to reach Canvas. Last URL: {page.url}")
 
             console.print(f"  [green]✓ Successfully logged in![/green]")
 
-            # 4. Extract cookies
+            # 6. Extract cookies
             cookies = context.cookies()
             console.print(f"  [green]✓ Extracted {len(cookies)} session cookies[/green]")
 
-            # 5. Try to extract API token
+            # 7. Try to extract API token
             api_token = _extract_api_token(page)
 
-            # 6. Save session
+            # 8. Save session
             _save_session(cookies, api_token)
             browser.close()
 
@@ -74,211 +81,208 @@ def login(username: str = "", password: str = "", headless: bool = True):
             raise RuntimeError(f"Login failed: {str(e)}")
 
 
-def _fill_login_form(page, username: str, password: str):
-    """Fill and submit the Canvas/Shibboleth login form."""
-    # Wait for page and any JavaScript to fully load
-    page.wait_for_load_state("networkidle", timeout=15000)
-    page.wait_for_timeout(2000)
+def _handle_account_picker(page, username: str):
+    """
+    Handle Microsoft account picker page.
 
-    # List of possible selectors for email/username form field
-    username_selectors = [
-        # Canvas OAuth page (what we're seeing)
+    If account is saved and visible, click on it.
+    Otherwise, click "Use another account" to enter new credentials.
+    """
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except:
+        pass
+
+    page.wait_for_timeout(1000)
+
+    # Try to find and click the saved account matching our username
+    try:
+        # Look for account button with matching email
+        account_buttons = page.locator("div[data-test-id='account-tile'], button:has-text('kent.edu')").all()
+        for btn in account_buttons:
+            try:
+                btn_text = btn.text_content() or ""
+                console.print(f"  [dim]Found account: {btn_text[:30]}[/dim]")
+
+                # Check if this is our account
+                if username in btn_text or username.split("@")[0] in btn_text:
+                    console.print(f"  [dim]✓ Clicking saved account: {btn_text}[/dim]")
+                    btn.click()
+                    page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    return  # Account was clicked, we're done
+            except:
+                continue
+    except:
+        pass
+
+    # Account not found or not visible - click "Use another account"
+    try:
+        console.print(f"  [dim]Account not saved, clicking 'Use another account'[/dim]")
+        use_another_btn = page.locator("button:has-text('Use another account'), div:has-text('Use another account')").first
+        if use_another_btn.is_visible(timeout=3000):
+            use_another_btn.click()
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+            console.print(f"  [dim]✓ Clicked 'Use another account'[/dim]")
+            return
+    except:
+        pass
+
+    console.print(f"  [dim]No account picker found, continuing...[/dim]")
+
+
+def _fill_email_form(page, username: str):
+    """Fill and submit email form."""
+    page.wait_for_timeout(1000)
+
+    email_selectors = [
+        "input[name='loginfmt']",      # Microsoft standard
+        "input[placeholder*='email']",
         "input[placeholder*='Email']",
-        "input[placeholder*='username']",
-        "input[name='email']",
-        "input[name='account']",
-        # Shibboleth standard
-        "input[name='j_username']",
-        "input#j_username",
-        "input[name='username']",
-        # Generic fallback
-        "input[type='text']:visible",
         "input[type='email']",
+        "input[name='email']",
+        "input[type='text']:visible",
     ]
 
-    password_selectors = [
-        # Canvas OAuth page
-        "input[placeholder*='password']",
-        "input[placeholder*='Password']",
-        "input[name='password']",
-        # Shibboleth standard
-        "input[name='j_password']",
-        "input#j_password",
-        # Generic
-        "input[type='password']:visible",
-    ]
-
-    submit_selectors = [
-        "button:has-text('Next')",
-        "button:has-text('Sign in')",
-        "button:has-text('Login')",
-        "button:has-text('Log in')",
-        "button[type='submit']",
-        "input[type='submit']",
-    ]
-
-    # Fill username/email
-    username_filled = False
-    for sel in username_selectors:
+    email_filled = False
+    for sel in email_selectors:
         try:
             field = page.locator(sel).first
             if field.is_visible(timeout=2000):
-                # Click the field to focus it
                 field.click()
-                page.wait_for_timeout(300)
-                # Clear any existing value
+                page.wait_for_timeout(200)
                 field.clear()
-                # Type the username
                 field.fill(username)
-                page.wait_for_timeout(300)
-                # Verify it was filled
+                page.wait_for_timeout(200)
                 val = field.input_value()
                 if val and len(val) > 0:
-                    console.print(f"  [dim]✓ Email/username entered: {sel}[/dim]")
-                    username_filled = True
+                    console.print(f"  [green]✓ Email entered[/green]")
+                    email_filled = True
                     break
-        except Exception as e:
+        except:
             continue
 
-    if not username_filled:
-        # Debug: show what inputs we found on the page
-        console.print(f"")
-        console.print(f"  [yellow]✗ Could not find username field![/yellow]")
-        console.print(f"  [dim]Current URL: {page.url}[/dim]")
-        console.print(f"  [dim]Page title: {page.title()}[/dim]")
-        console.print(f"")
+    if not email_filled:
+        raise RuntimeError("Could not find email field")
 
-        try:
-            inputs = page.locator("input").all()
-            console.print(f"  [yellow]Found {len(inputs)} input element(s):[/yellow]")
-            for i, inp in enumerate(inputs):
-                try:
-                    name = inp.get_attribute("name") or "(no name)"
-                    inp_id = inp.get_attribute("id") or "(no id)"
-                    inp_type = inp.get_attribute("type") or "text"
-                    placeholder = inp.get_attribute("placeholder") or ""
-                    visible = inp.is_visible(timeout=1000)
-                    console.print(f"    {i+1}. name='{name}', id='{inp_id}', type='{inp_type}', placeholder='{placeholder}', visible={visible}")
-                except Exception as e:
-                    console.print(f"    {i+1}. [error reading: {e}]")
-        except Exception as e:
-            console.print(f"  [dim]Error listing inputs: {e}[/dim]")
+    page.wait_for_timeout(300)
 
-        # Try to save screenshot for visual debugging
+    # Click Next button
+    next_buttons = [
+        "input[type='submit']",
+        "button[type='submit']",
+        "button:has-text('Next')",
+    ]
+
+    for sel in next_buttons:
         try:
-            ss_path = BASE_DIR / "data" / "login_form_debug.png"
-            ss_path.parent.mkdir(exist_ok=True)
-            page.screenshot(path=str(ss_path))
-            console.print(f"  [dim]Screenshot saved: {ss_path}[/dim]")
+            btn = page.locator(sel).first
+            if btn.is_visible(timeout=2000):
+                btn.click()
+                page.wait_for_timeout(2000)
+                console.print(f"  [green]✓ Next clicked[/green]")
+                return
         except:
-            pass
+            continue
 
-        console.print(f"")
-        raise RuntimeError("Could not find username field on login page")
+    # Try pressing Enter
+    try:
+        page.press("input", "Enter")
+        page.wait_for_timeout(2000)
+        console.print(f"  [green]✓ Submitted with Enter[/green]")
+    except:
+        raise RuntimeError("Could not submit email form")
 
-    page.wait_for_timeout(500)
 
-    # Fill password
+def _fill_password_form(page, password: str):
+    """Fill and submit password form."""
+    page.wait_for_timeout(1000)
+
+    password_selectors = [
+        "input[name='passwd']",         # Microsoft standard
+        "input[placeholder*='password']",
+        "input[placeholder*='Password']",
+        "input[type='password']",
+        "input[name='password']",
+    ]
+
     password_filled = False
     for sel in password_selectors:
         try:
             field = page.locator(sel).first
-            if field.is_visible(timeout=5000):  # Longer timeout for password field to appear
-                # Click to focus
+            if field.is_visible(timeout=5000):
                 field.click()
-                page.wait_for_timeout(300)
-                # Clear and fill
+                page.wait_for_timeout(200)
                 field.clear()
                 field.fill(password)
-                page.wait_for_timeout(300)
-                # Verify
+                page.wait_for_timeout(200)
                 val = field.input_value()
                 if val and len(val) > 0:
-                    console.print(f"  [dim]✓ Password entered: {sel}[/dim]")
+                    console.print(f"  [green]✓ Password entered[/green]")
                     password_filled = True
                     break
-        except Exception as e:
+        except:
             continue
 
     if not password_filled:
-        raise RuntimeError("Could not find password field on login page")
+        raise RuntimeError("Could not find password field")
 
     page.wait_for_timeout(300)
 
-    # Click submit/Next button
-    submitted = False
-    for sel in submit_selectors:
+    # Click Sign In button
+    signin_buttons = [
+        "input[type='submit']",
+        "button[type='submit']",
+        "button:has-text('Sign in')",
+    ]
+
+    for sel in signin_buttons:
         try:
             btn = page.locator(sel).first
             if btn.is_visible(timeout=2000):
-                console.print(f"  [dim]Clicking: {sel}[/dim]")
                 btn.click()
-                # Wait for page to change after clicking Next
                 page.wait_for_timeout(2000)
-                console.print(f"  [dim]✓ Next button clicked[/dim]")
-                submitted = True
-                break
-        except Exception as e:
+                console.print(f"  [green]✓ Signed in[/green]")
+                return
+        except:
             continue
 
-    if not submitted:
-        # Try pressing Enter as fallback
-        try:
-            console.print(f"  [dim]Fallback: Press Enter[/dim]")
-            page.press("input", "Enter")
-            page.wait_for_timeout(2000)
-            console.print(f"  [dim]✓ Submitted via Enter key[/dim]")
-            submitted = True
-        except:
-            pass
-
-    if not submitted:
-        raise RuntimeError("Could not submit email form")
+    # Try pressing Enter
+    try:
+        page.press("input[type='password']", "Enter")
+        page.wait_for_timeout(2000)
+        console.print(f"  [green]✓ Submitted with Enter[/green]")
+    except:
+        raise RuntimeError("Could not submit password form")
 
 
 def _wait_for_canvas_dashboard(page) -> bool:
-    """Wait for successful login - user should be on Canvas dashboard or courses page."""
+    """Wait for successful login - should be on Canvas dashboard."""
     try:
-        # Wait for URL to contain Canvas domain AND one of these paths
-        dashboard_patterns = [
-            "**/dashboard",
-            "**/courses",
-            "**/groups",
-            "kent.instructure.com",
-        ]
-
-        for pattern in dashboard_patterns:
+        patterns = ["**/dashboard", "**/courses", "**/groups"]
+        for pattern in patterns:
             try:
                 page.wait_for_url(pattern, timeout=15000)
                 return True
             except:
                 continue
 
-        # If URL pattern didn't match, check if we're on Canvas at all
-        current_url = page.url
-        if "kent.instructure.com" in current_url:
-            console.print(f"  [dim]At Canvas: {current_url[:80]}[/dim]")
+        # Check if we're on Canvas domain
+        if "kent.instructure.com" in page.url:
             return True
 
         return False
-
-    except PlaywrightTimeout:
+    except:
         return False
 
 
 def _extract_api_token(page) -> str:
-    """Extract Canvas API token from profile settings."""
+    """Extract Canvas API token."""
     try:
         page.goto(f"{CANVAS_BASE_URL}/profile/settings", wait_until="domcontentloaded", timeout=15000)
         page.wait_for_timeout(2000)
 
-        # Try to find and click "New Access Token" button
-        selectors = [
-            "button:has-text('New Access Token')",
-            "a:has-text('New Access Token')",
-        ]
-
-        for sel in selectors:
+        # Find and click "New Access Token"
+        for sel in ["button:has-text('New Access Token')", "a:has-text('New Access Token')"]:
             try:
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
@@ -288,7 +292,7 @@ def _extract_api_token(page) -> str:
             except:
                 continue
 
-        # Fill purpose field if it exists
+        # Fill purpose
         try:
             field = page.locator("input[name='purpose']").first
             if field.is_visible(timeout=2000):
@@ -296,7 +300,7 @@ def _extract_api_token(page) -> str:
         except:
             pass
 
-        # Click Generate button
+        # Click Generate
         try:
             btn = page.locator("button:has-text('Generate')").first
             if btn.is_visible(timeout=2000):
@@ -305,15 +309,8 @@ def _extract_api_token(page) -> str:
         except:
             pass
 
-        # Try to extract token
-        token_selectors = [
-            "code",
-            "#new_token_value",
-            "[data-testid='token-value']",
-            ".token",
-        ]
-
-        for sel in token_selectors:
+        # Extract token
+        for sel in ["code", "#new_token_value", ".token"]:
             try:
                 el = page.locator(sel).first
                 if el.is_visible(timeout=2000):
@@ -324,16 +321,16 @@ def _extract_api_token(page) -> str:
             except:
                 continue
 
-        console.print(f"  [dim]API token not available (will use cookies)[/dim]")
+        console.print(f"  [dim]API token not available[/dim]")
         return ""
 
-    except Exception as e:
-        console.print(f"  [dim]Token extraction skipped: {type(e).__name__}[/dim]")
+    except Exception:
+        console.print(f"  [dim]Token extraction skipped[/dim]")
         return ""
 
 
 def _save_session(cookies: list, api_token: str):
-    """Save cookies and token to files."""
+    """Save cookies and token."""
     COOKIES_FILE.write_text(json.dumps(cookies, indent=2))
     if api_token:
         TOKEN_FILE.write_text(api_token)
