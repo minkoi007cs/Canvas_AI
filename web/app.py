@@ -19,6 +19,10 @@ from storage.database import init_db, load_json
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
+# Trust Railway/proxy HTTPS headers
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 # ── Google OAuth ───────────────────────────────────────────────────────────────
 from authlib.integrations.flask_client import OAuth
 oauth = OAuth(app)
