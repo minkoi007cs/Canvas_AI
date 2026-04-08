@@ -17,14 +17,13 @@ def login(username: str = "", password: str = "", headless: bool = True):
     """
     Login to Canvas using Playwright.
 
-    On Railway (headless server): headless=True, uses SAML auth
-    On local machine: headless=False, shows browser window
+    Always uses headless=True for automation since manual login
+    requires user to type credentials which we handle programmatically.
 
     Returns: (cookies, api_token)
     """
-    # Auto-detect if we're on Railway
-    is_railway = bool(os.getenv("RAILWAY_ENVIRONMENT"))
-    headless = is_railway or headless
+    # ALWAYS use headless mode - no X server available on servers
+    headless = True
 
     console.print("[bold blue]Logging into Canvas...[/bold blue]")
     if not headless:
