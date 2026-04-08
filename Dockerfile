@@ -14,4 +14,4 @@ RUN mkdir -p data downloads files_cache screenshots
 
 EXPOSE 8080
 
-CMD gunicorn web.app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --timeout 300 --worker-class sync --log-level debug --access-logfile - --error-logfile -
+CMD ["/bin/sh", "-c", "gunicorn web.app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --timeout 300 --worker-class sync --log-level debug --access-logfile - --error-logfile -"]
