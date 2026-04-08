@@ -67,8 +67,15 @@ def login_required(f):
         _setup_user_context(google_id)
         # If Canvas not linked yet → redirect to setup (except setup routes)
         from storage.users import get_user
-        user = get_user(google_id)
+        try:
+            user = get_user(google_id)
+        except Exception as e:
+            print(f"[login_required] DB error for {google_id}: {e}", flush=True)
+            session.clear()
+            return redirect(url_for("login_page"))
         if not user:
+            print(f"[login_required] user not found: {google_id}", flush=True)
+            session.clear()
             return redirect(url_for("login_page"))
         if user.get("is_banned"):
             session.clear()
@@ -92,8 +99,10 @@ def index():
             user = get_user(google_id)
             if user and not user.get("is_banned"):
                 return redirect(url_for("dashboard"))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[index] get_user error for {google_id}: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
     # Not logged in or session invalid
     session.clear()
     return redirect(url_for("login_page"))
@@ -107,8 +116,9 @@ def login_page():
             user = get_user(session["google_id"])
             if user and not user.get("is_banned"):
                 return redirect(url_for("dashboard"))
-        except Exception:
-            pass
+            print(f"[login] user not found or banned: {session['google_id']}", flush=True)
+        except Exception as e:
+            print(f"[login] get_user error: {e}", flush=True)
     return render_template("login.html", error=request.args.get("error"))
 
 
