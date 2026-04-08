@@ -116,19 +116,39 @@ def _fill_login_form(page, username: str, password: str):
             continue
 
     if not username_filled:
-        # Debug: show what inputs we found
+        # Debug: show what inputs we found on the page
+        console.print(f"")
+        console.print(f"  [yellow]✗ Could not find username field![/yellow]")
+        console.print(f"  [dim]Current URL: {page.url}[/dim]")
+        console.print(f"  [dim]Page title: {page.title()}[/dim]")
+        console.print(f"")
+
         try:
             inputs = page.locator("input").all()
-            console.print(f"  [yellow]Could not find username field. Found {len(inputs)} inputs:[/yellow]")
-            for inp in inputs[:5]:
+            console.print(f"  [yellow]Found {len(inputs)} input element(s):[/yellow]")
+            for i, inp in enumerate(inputs):
                 try:
-                    name = inp.get_attribute("name") or ""
+                    name = inp.get_attribute("name") or "(no name)"
+                    inp_id = inp.get_attribute("id") or "(no id)"
                     inp_type = inp.get_attribute("type") or "text"
-                    console.print(f"    - name='{name}', type='{inp_type}'")
-                except:
-                    pass
+                    placeholder = inp.get_attribute("placeholder") or ""
+                    visible = inp.is_visible(timeout=1000)
+                    console.print(f"    {i+1}. name='{name}', id='{inp_id}', type='{inp_type}', placeholder='{placeholder}', visible={visible}")
+                except Exception as e:
+                    console.print(f"    {i+1}. [error reading: {e}]")
+        except Exception as e:
+            console.print(f"  [dim]Error listing inputs: {e}[/dim]")
+
+        # Try to save screenshot for visual debugging
+        try:
+            ss_path = BASE_DIR / "data" / "login_form_debug.png"
+            ss_path.parent.mkdir(exist_ok=True)
+            page.screenshot(path=str(ss_path))
+            console.print(f"  [dim]Screenshot saved: {ss_path}[/dim]")
         except:
             pass
+
+        console.print(f"")
         raise RuntimeError("Could not find username field on login page")
 
     page.wait_for_timeout(300)
