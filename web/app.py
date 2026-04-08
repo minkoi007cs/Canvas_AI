@@ -82,10 +82,33 @@ def login_required(f):
 
 # ── Auth routes ────────────────────────────────────────────────────────────────
 
+@app.route("/")
+def index():
+    """Home page — redirect to dashboard if logged in, else to login."""
+    google_id = session.get("google_id")
+    if google_id:
+        try:
+            from storage.users import get_user
+            user = get_user(google_id)
+            if user and not user.get("is_banned"):
+                return redirect(url_for("dashboard"))
+        except Exception:
+            pass
+    # Not logged in or session invalid
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
 @app.route("/login")
 def login_page():
     if session.get("google_id"):
-        return redirect(url_for("dashboard"))
+        try:
+            from storage.users import get_user
+            user = get_user(session["google_id"])
+            if user and not user.get("is_banned"):
+                return redirect(url_for("dashboard"))
+        except Exception:
+            pass
     return render_template("login.html", error=request.args.get("error"))
 
 
