@@ -209,7 +209,11 @@ def _trigger_sync(google_id: str):
                 update_sync_status(google_id, "error:No Canvas credentials saved.")
                 return
 
-            cookies, api_token = login(username, password, headless=headless)
+            try:
+                cookies, api_token = login(username, password, headless=headless)
+            except Exception as login_err:
+                update_sync_status(google_id, f"error:Login failed: {login_err}")
+                return
             if not cookies and not api_token:
                 update_sync_status(google_id, "error:Login failed. Check credentials.")
                 return
