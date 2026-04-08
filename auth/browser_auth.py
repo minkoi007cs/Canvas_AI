@@ -22,7 +22,10 @@ def login(username: str = "", password: str = "", headless: bool = False):
     console.print("[bold blue]Đang mở browser để đăng nhập Canvas...[/bold blue]")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        browser = p.chromium.launch(
+            headless=headless,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         )

@@ -39,7 +39,10 @@ def solve_quiz(course_id: int, quiz_id: int, assignment_id: int,
 
     with sync_playwright() as p:
         # device_scale_factor=2 → ảnh sắc nét gấp đôi
-        browser = p.chromium.launch(headless=headless)
+        browser = p.chromium.launch(
+            headless=headless,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
         context = browser.new_context(
             viewport={"width": 1400, "height": 900},
             device_scale_factor=2,
@@ -488,7 +491,10 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
 
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+            )
             ctx_pw  = browser.new_context(
                 viewport={"width": 1400, "height": 900},
                 device_scale_factor=2,
