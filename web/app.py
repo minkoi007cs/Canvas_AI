@@ -191,8 +191,13 @@ def _trigger_sync(google_id: str):
     def _run():
         _setup_user_context(google_id)
         from storage.users import update_sync_status
+
+        def step(msg):
+            update_sync_status(google_id, f"syncing:{msg}")
+            print(f"[sync] {msg}", flush=True)
+
         try:
-            update_sync_status(google_id, "syncing")
+            step("Đang khởi động trình duyệt...")
             from storage.users import get_canvas_credentials, save_user_session
             from storage.database import init_db
             from auth.browser_auth import login
@@ -209,6 +214,7 @@ def _trigger_sync(google_id: str):
                 update_sync_status(google_id, "error:No Canvas credentials saved.")
                 return
 
+            step("Đang đăng nhập Canvas...")
             try:
                 cookies, api_token = login(username, password, headless=headless)
             except Exception as login_err:
@@ -219,19 +225,33 @@ def _trigger_sync(google_id: str):
                 return
 
             save_user_session(google_id, cookies or [], api_token or "")
-
             init_db()
             client = CanvasClient(cookies=cookies, api_token=api_token)
+
+            step("Đang tải danh sách courses...")
             courses = sync_courses(client)
+
+            step(f"Đang tải assignments ({len(courses)} courses)...")
             sync_assignments(client, courses)
+
+            step("Đang tải files & PDFs...")
             sync_files(client, courses, download=True)
+
+            step("Đang tải modules...")
             sync_modules(client, courses)
+
+            step("Đang tải nội dung pages...")
             sync_pages_deep(cookies or [], api_token=api_token or "")
+
+            step("Đang tổ chức folders...")
             build_folders()
+
             update_sync_status(google_id, "done")
         except Exception as e:
+            import traceback
             update_sync_status(google_id, f"error:{e}")
-            print(f"[sync error {google_id}]: {e}")
+            print(f"[sync error {google_id}]: {e}", flush=True)
+            traceback.print_exc()
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -251,7 +271,11 @@ def api_sync_status():
     """Return current sync_status for polling."""
     from storage.users import get_user
     user = get_user(session["google_id"])
-    return jsonify({"status": user.get("sync_status", "never") if user else "never"})
+    raw = user.get("sync_status", "never") if user else "never"
+    # Parse "syncing:message" format
+    if raw and raw.startswith("syncing:"):
+        return jsonify({"status": "syncing", "step": raw[len("syncing:"):]})
+    return jsonify({"status": raw, "step": ""})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
