@@ -34,21 +34,32 @@ def login(username: str = "", password: str = "", headless: bool = False):
         # 1. Vào Canvas → click FlashLine login
         console.print(f"  → Truy cập {CANVAS_BASE_URL}")
         page.goto(CANVAS_BASE_URL, wait_until="networkidle", timeout=30000)
+        console.print(f"  [green]✓ Canvas loaded[/green]")
         _click_flashline_login(page)
+        console.print(f"  [green]✓ FlashLine click done[/green]")
 
         # 2. Microsoft SSO: điền email
+        console.print(f"  → Step 2: Điền email...")
         _fill_microsoft_email(page, username)
+        console.print(f"  [green]✓ Email done[/green]")
 
         # 3. Microsoft SSO: điền password
+        console.print(f"  → Step 3: Điền password...")
         _fill_microsoft_password(page, password)
+        console.print(f"  [green]✓ Password done[/green]")
 
         # 4. MFA (nếu có)
+        console.print(f"  → Step 4: Kiểm tra MFA...")
         _handle_mfa(page)
+        console.print(f"  [green]✓ MFA done[/green]")
 
         # 5. "Stay signed in?" prompt của Microsoft
+        console.print(f"  → Step 5: Xử lý 'Stay signed in'...")
         _handle_stay_signed_in(page)
+        console.print(f"  [green]✓ Stay signed in done[/green]")
 
         # 6. Chờ về Canvas
+        console.print(f"  → Step 6: Chờ về Canvas...")
         if not _wait_for_canvas(page):
             current_url = page.url
             console.print("[red]Đăng nhập thất bại - vẫn còn ở trang ngoài Canvas[/red]")
@@ -94,18 +105,24 @@ def _click_flashline_login(page):
                     btn.click()
                     console.print(f"  → Click: {sel}")
                     page.wait_for_load_state("networkidle", timeout=10000)
+                    console.print(f"  [green]✓ Clicked FlashLine, now at: {page.url}[/green]")
                     return
-            except Exception:
+            except Exception as e:
+                console.print(f"  [dim]Selector {sel} failed: {e}[/dim]")
                 continue
         console.print("  [dim]Không tìm thấy nút SSO, tiếp tục...[/dim]")
-    except Exception:
-        pass
+        console.print(f"  [dim]Current URL: {page.url}[/dim]")
+    except Exception as e:
+        console.print(f"  [yellow]Error in FlashLine click: {e}[/yellow]")
 
 
 def _fill_microsoft_email(page, username: str):
     """Điền email/username trên trang Microsoft login."""
     console.print("  → Điền email Microsoft...")
     try:
+        # Wait for page to fully load
+        page.wait_for_load_state("networkidle", timeout=10000)
+
         # Microsoft dùng input[name='loginfmt'] cho email
         email_selectors = [
             "input[name='loginfmt']",
@@ -118,16 +135,24 @@ def _fill_microsoft_email(page, username: str):
             try:
                 field = page.locator(sel).first
                 if field.is_visible(timeout=5000):
+                    field.clear()  # Clear any existing text
                     field.fill(username)
-                    console.print(f"  → Điền email ({sel})")
+                    # Verify it was filled
+                    value = field.input_value()
+                    console.print(f"  → Điền email ({sel}), value: {value[:20]}...")
                     filled = True
                     break
-            except Exception:
+            except Exception as e:
+                console.print(f"  [dim]Selector {sel} failed: {e}[/dim]")
                 continue
 
         if not filled:
             console.print("  [yellow]Không tìm thấy ô email[/yellow]")
+            console.print(f"  [dim]Current URL: {page.url}[/dim]")
+            console.print(f"  [dim]Page title: {page.title()}[/dim]")
             return
+
+        page.wait_for_timeout(500)  # Small delay before clicking
 
         # Click Next / Submit
         next_selectors = [
@@ -136,15 +161,22 @@ def _fill_microsoft_email(page, username: str):
             "input[value='Next']",
             "button:has-text('Next')",
         ]
+        clicked = False
         for sel in next_selectors:
             try:
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
+                    console.print(f"  → Click Next ({sel})")
                     btn.click()
                     page.wait_for_load_state("networkidle", timeout=10000)
+                    clicked = True
                     break
-            except Exception:
+            except Exception as e:
+                console.print(f"  [dim]Next button {sel} failed: {e}[/dim]")
                 continue
+
+        if not clicked:
+            console.print("  [yellow]Không tìm thấy nút Next[/yellow]")
 
     except PlaywrightTimeout:
         console.print("  [yellow]Timeout điền email[/yellow]")
@@ -154,7 +186,9 @@ def _fill_microsoft_password(page, password: str):
     """Điền password trên trang Microsoft login."""
     console.print("  → Điền password...")
     try:
-        # Chờ password field xuất hiện (Microsoft tách trang email và password)
+        # Wait for page to fully load (Microsoft tách trang email và password)
+        page.wait_for_load_state("networkidle", timeout=10000)
+
         password_selectors = [
             "input[name='passwd']",
             "input[type='password']",
@@ -166,16 +200,24 @@ def _fill_microsoft_password(page, password: str):
             try:
                 field = page.locator(sel).first
                 if field.is_visible(timeout=8000):
+                    field.clear()  # Clear any existing text
                     field.fill(password)
-                    console.print("  → Điền password")
+                    # Verify it was filled (don't print password!)
+                    value = field.input_value()
+                    console.print(f"  → Điền password ({sel}), length: {len(value)}")
                     filled = True
                     break
-            except Exception:
+            except Exception as e:
+                console.print(f"  [dim]Password selector {sel} failed: {e}[/dim]")
                 continue
 
         if not filled:
             console.print("  [yellow]Không tìm thấy ô password[/yellow]")
+            console.print(f"  [dim]Current URL: {page.url}[/dim]")
+            console.print(f"  [dim]Page title: {page.title()}[/dim]")
             return
+
+        page.wait_for_timeout(500)  # Small delay before clicking
 
         # Click Sign In
         signin_selectors = [
@@ -185,15 +227,23 @@ def _fill_microsoft_password(page, password: str):
             "button:has-text('Sign in')",
             "button:has-text('Log in')",
         ]
+        clicked = False
         for sel in signin_selectors:
             try:
                 btn = page.locator(sel).first
                 if btn.is_visible(timeout=2000):
+                    console.print(f"  → Click Sign In ({sel})")
                     btn.click()
                     page.wait_for_load_state("networkidle", timeout=15000)
+                    clicked = True
                     break
-            except Exception:
+            except Exception as e:
+                console.print(f"  [dim]Sign in button {sel} failed: {e}[/dim]")
                 continue
+
+        if not clicked:
+            console.print("  [yellow]Không tìm thấy nút Sign In[/yellow]")
+            console.print(f"  [dim]Current URL after form fill: {page.url}[/dim]")
 
     except PlaywrightTimeout:
         console.print("  [yellow]Timeout điền password[/yellow]")
@@ -313,7 +363,14 @@ def _wait_for_canvas(page) -> bool:
         console.print(f"  [green]✓ Canvas URL: {page.url}[/green]")
         return True
     except PlaywrightTimeout:
-        return "kent.instructure.com" in page.url
+        current_url = page.url
+        console.print(f"  [yellow]Timeout chờ dashboard. Current URL: {current_url}[/yellow]")
+        if "kent.instructure.com" in current_url:
+            console.print(f"  [green]✓ Đã về Canvas domain (accept fallback)[/green]")
+            return True
+        else:
+            console.print(f"  [red]✗ Vẫn ở ngoài Canvas[/red]")
+            return False
 
 
 def _extract_api_token(page) -> str:
