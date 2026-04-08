@@ -195,7 +195,8 @@ def _fill_email_form(page, username: str):
 
 def _fill_password_form(page, password: str):
     """Fill and submit password form."""
-    page.wait_for_timeout(1000)
+    page.wait_for_load_state("domcontentloaded", timeout=15000)
+    page.wait_for_timeout(1500)
 
     password_selectors = [
         "input[name='passwd']",         # Microsoft standard
@@ -206,73 +207,110 @@ def _fill_password_form(page, password: str):
     ]
 
     password_filled = False
+    pwd_field = None
     for sel in password_selectors:
         try:
             field = page.locator(sel).first
             if field.is_visible(timeout=5000):
+                pwd_field = field
                 field.click()
-                page.wait_for_timeout(200)
+                page.wait_for_timeout(300)
                 field.clear()
-                field.fill(password)
                 page.wait_for_timeout(200)
+                field.fill(password)
+                page.wait_for_timeout(300)
                 val = field.input_value()
                 if val and len(val) > 0:
                     console.print(f"  [green]✓ Password entered[/green]")
                     password_filled = True
                     break
-        except:
+        except Exception:
             continue
 
     if not password_filled:
         raise RuntimeError("Could not find password field")
 
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(500)
 
-    # Click Sign In button
+    # Try clicking Sign In button
     signin_buttons = [
         "input[type='submit']",
         "button[type='submit']",
         "button:has-text('Sign in')",
+        "button:has-text('Sign In')",
     ]
 
+    submitted = False
     for sel in signin_buttons:
         try:
             btn = page.locator(sel).first
-            if btn.is_visible(timeout=2000):
+            if btn.is_visible(timeout=3000):
+                console.print(f"  [dim]Clicking sign in button[/dim]")
                 btn.click()
-                page.wait_for_timeout(2000)
-                console.print(f"  [green]✓ Signed in[/green]")
-                return
-        except:
+                page.wait_for_timeout(3000)
+                console.print(f"  [green]✓ Sign in button clicked[/green]")
+                submitted = True
+                break
+        except Exception:
             continue
 
-    # Try pressing Enter
-    try:
-        page.press("input[type='password']", "Enter")
-        page.wait_for_timeout(2000)
-        console.print(f"  [green]✓ Submitted with Enter[/green]")
-    except:
-        raise RuntimeError("Could not submit password form")
+    # Fallback: Press Enter on password field
+    if not submitted and pwd_field:
+        try:
+            console.print(f"  [dim]Fallback: pressing Enter[/dim]")
+            pwd_field.press("Enter")
+            page.wait_for_timeout(3000)
+            console.print(f"  [green]✓ Submitted with Enter key[/green]")
+            submitted = True
+        except Exception:
+            pass
+
+    if not submitted:
+        raise RuntimeError("Could not submit password form - sign in button not found")
 
 
 def _wait_for_canvas_dashboard(page) -> bool:
     """Wait for successful login - should be on Canvas dashboard."""
-    try:
-        patterns = ["**/dashboard", "**/courses", "**/groups"]
-        for pattern in patterns:
-            try:
-                page.wait_for_url(pattern, timeout=15000)
+    console.print(f"  → Waiting for Canvas (max 30 seconds)...")
+
+    # Wait for URL to change away from Microsoft login
+    initial_url = page.url
+    start_time = page.evaluate("() => Date.now()")
+
+    while True:
+        try:
+            current_url = page.url
+            console.print(f"  [dim]Current URL: {current_url[:60]}...[/dim]")
+
+            # Check if we reached Canvas
+            if "kent.instructure.com" in current_url:
+                console.print(f"  [green]✓ Reached Canvas![/green]")
                 return True
-            except:
-                continue
 
-        # Check if we're on Canvas domain
-        if "kent.instructure.com" in page.url:
-            return True
+            # Check if we're still at Microsoft login (bad sign)
+            if "login.microsoftonline.com" in current_url and current_url == initial_url:
+                # Still at login page - wait a bit more
+                page.wait_for_timeout(2000)
+                if page.url == initial_url:
+                    console.print(f"  [red]✗ Still at Microsoft login - form submission may have failed[/red]")
+                    return False
+            else:
+                # URL changed but not to Canvas - wait for it to navigate
+                page.wait_for_timeout(2000)
 
-        return False
-    except:
-        return False
+            # Check elapsed time
+            elapsed = (page.evaluate("() => Date.now()") - start_time) / 1000
+            if elapsed > 30:
+                console.print(f"  [yellow]Timeout after {elapsed:.0f}s[/yellow]")
+                return False
+
+        except Exception as e:
+            console.print(f"  [dim]Error waiting: {type(e).__name__}[/dim]")
+            page.wait_for_timeout(2000)
+            current_url = page.url
+            if "kent.instructure.com" in current_url:
+                return True
+            continue
 
 
 def _extract_api_token(page) -> str:
