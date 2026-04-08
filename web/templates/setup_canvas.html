@@ -23,7 +23,7 @@
     </div>
 
     <!-- User info -->
-    <div class="px-8 pt-6 pb-2 flex items-center gap-3 border-b border-gray-100">
+    <div class="px-8 pt-6 pb-4 flex items-center gap-3 border-b border-gray-100">
       {% if user.picture %}
       <img src="{{ user.picture }}" class="w-10 h-10 rounded-full" alt="">
       {% endif %}
@@ -42,8 +42,8 @@
       {% endif %}
 
       <p class="text-sm text-gray-600 mb-5">
-        Enter your <strong>Kent State FlashLine</strong> credentials to connect Canvas.
-        This is stored encrypted and used only to access your Canvas courses.
+        Enter your <strong>Kent State FlashLine</strong> credentials. A browser window will open
+        for you to log in. If MFA is required, approve it on your phone.
       </p>
 
       <form method="POST" action="/setup/canvas" class="space-y-4">
@@ -52,7 +52,8 @@
             FlashLine ID
           </label>
           <input type="text" name="canvas_user" required autocomplete="username"
-                 placeholder="e.g. jsmith1"
+                 placeholder="e.g. khoang4"
+                 value="{{ user.canvas_user or '' }}"
                  class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm
                         focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition">
         </div>
@@ -66,15 +67,15 @@
                         focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition">
         </div>
 
-        <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-          <strong>Note:</strong> After saving, the app will open a browser to log in to Canvas
-          and sync your courses. This may take a few minutes.
+        <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+          <strong>Note:</strong> A browser window will open automatically. Log in and approve
+          any MFA prompt — the app will continue automatically after.
         </div>
 
         <button type="submit"
                 class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold
                        py-3 rounded-xl transition-colors shadow-sm mt-2">
-          Connect & Sync Canvas
+          Connect Canvas
         </button>
       </form>
     </div>

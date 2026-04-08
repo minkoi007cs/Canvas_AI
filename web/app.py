@@ -14,6 +14,7 @@ from flask import (Flask, render_template, request, jsonify, redirect,
 from html.parser import HTMLParser
 from config import FLASK_SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 from storage.users import init_users_db
+from storage.database import init_db, load_json
 
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
@@ -30,6 +31,7 @@ oauth.register(
 )
 
 init_users_db()
+init_db()
 
 # ── Per-request user context ──────────────────────────────────────────────────
 
@@ -124,6 +126,20 @@ def setup_canvas_get():
     return render_template("setup_canvas.html", user=user or {}, error=None)
 
 
+@app.route("/setup/canvas/reset")
+def setup_canvas_reset():
+    """Clear canvas_linked so user can re-enter credentials."""
+    google_id = session.get("google_id")
+    if not google_id:
+        return redirect(url_for("login_page"))
+    from storage.users import get_users_conn, _exec
+    conn = get_users_conn()
+    _exec(conn, "UPDATE users SET canvas_linked=0, canvas_user=NULL, canvas_pass=NULL WHERE google_id=?", (google_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("setup_canvas_get"))
+
+
 @app.route("/setup/canvas", methods=["POST"])
 def setup_canvas_post():
     google_id = session.get("google_id")
@@ -137,12 +153,11 @@ def setup_canvas_post():
         from storage.users import get_user
         return render_template("setup_canvas.html",
                                user=get_user(google_id) or {},
-                               error="Vui lòng nhập đầy đủ FlashLine ID và password.")
+                               error="Vui lòng nhập FlashLine ID và password.")
 
-    from storage.users import set_canvas_credentials, get_user
+    from storage.users import set_canvas_credentials
     set_canvas_credentials(google_id, canvas_user, canvas_pass)
 
-    # Kick off background sync
     _setup_user_context(google_id)
     _trigger_sync(google_id)
 
@@ -152,6 +167,12 @@ def setup_canvas_post():
 def _trigger_sync(google_id: str):
     """Run Canvas sync in a background thread."""
     import threading
+    import os
+
+    # On local dev (no RAILWAY_ENVIRONMENT), run browser visible so user can handle MFA
+    is_production = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("HEADLESS_BROWSER"))
+    headless = is_production
+
     def _run():
         _setup_user_context(google_id)
         from storage.users import update_sync_status
@@ -169,11 +190,16 @@ def _trigger_sync(google_id: str):
             from sync.organizer import build_folders
 
             username, password = get_canvas_credentials(google_id)
-            cookies, api_token = login(username, password, headless=True)
-            if not cookies:
-                update_sync_status(google_id, "error:login failed")
+            if not username or not password:
+                update_sync_status(google_id, "error:No Canvas credentials saved.")
                 return
-            save_user_session(google_id, cookies, api_token or "")
+
+            cookies, api_token = login(username, password, headless=headless)
+            if not cookies and not api_token:
+                update_sync_status(google_id, "error:Login failed. Check credentials.")
+                return
+
+            save_user_session(google_id, cookies or [], api_token or "")
 
             init_db()
             client = CanvasClient(cookies=cookies, api_token=api_token)
@@ -181,7 +207,7 @@ def _trigger_sync(google_id: str):
             sync_assignments(client, courses)
             sync_files(client, courses, download=True)
             sync_modules(client, courses)
-            sync_pages_deep(cookies)
+            sync_pages_deep(cookies or [], api_token=api_token or "")
             build_folders()
             update_sync_status(google_id, "done")
         except Exception as e:
@@ -198,6 +224,15 @@ def api_resync():
     google_id = session["google_id"]
     _trigger_sync(google_id)
     return jsonify({"success": True, "message": "Sync đang chạy nền..."})
+
+
+@app.route("/api/sync_status")
+@login_required
+def api_sync_status():
+    """Return current sync_status for polling."""
+    from storage.users import get_user
+    user = get_user(session["google_id"])
+    return jsonify({"status": user.get("sync_status", "never") if user else "never"})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -279,20 +314,23 @@ def _current_user():
 @app.route("/")
 @login_required
 def dashboard():
-    from storage.database import get_courses, get_conn
+    from storage.database import get_courses, get_conn, get_current_google_id
     courses = get_courses()
+    gid = get_current_google_id()
     for c in courses:
         c["color"] = course_color(c["id"])
         conn = get_conn()
         c["assignment_count"] = conn.execute(
-            "SELECT COUNT(*) as n FROM assignments WHERE course_id=?", (c["id"],)
+            "SELECT COUNT(*) as n FROM assignments WHERE google_id=? AND course_id=?",
+            (gid, c["id"])
         ).fetchone()["n"]
         c["upcoming"] = conn.execute("""
             SELECT COUNT(*) as n FROM assignments a
-            LEFT JOIN submissions s ON s.assignment_id = a.id
-            WHERE a.course_id=? AND (s.id IS NULL OR s.workflow_state NOT IN ('graded','submitted'))
+            LEFT JOIN submissions s ON s.assignment_id = a.id AND s.google_id = a.google_id
+            WHERE a.google_id=? AND a.course_id=?
+            AND (s.id IS NULL OR s.workflow_state NOT IN ('graded','submitted'))
             AND a.due_at IS NOT NULL
-        """, (c["id"],)).fetchone()["n"]
+        """, (gid, c["id"])).fetchone()["n"]
         conn.close()
     return render_template("dashboard.html", courses=courses, current_user=_current_user())
 
@@ -340,7 +378,7 @@ def course_assignments(course_id):
     for a in assignments:
         sub = get_submission(a["id"])
         a["_status_label"], a["_status_class"] = submission_status(sub, a)
-        a["_sub_types"] = json.loads(a.get("submission_types", "[]"))
+        a["_sub_types"] = load_json(a.get("submission_types", "[]"))
         a["_due_fmt"]   = fmt_date(a.get("due_at", ""))
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
@@ -364,28 +402,29 @@ def course_assignments(course_id):
 @app.route("/courses/<int:course_id>/grades")
 @login_required
 def course_grades(course_id):
-    from storage.database import get_courses, get_conn
+    from storage.database import get_courses, get_conn, get_current_google_id
     courses = get_courses()
     course  = next((c for c in courses if c["id"] == course_id), None)
     if not course:
         abort(404)
     course["color"] = course_color(course_id)
+    gid = get_current_google_id()
     conn = get_conn()
     rows = conn.execute("""
         SELECT a.id, a.name, a.points_possible, a.due_at, a.submission_types,
                s.score, s.grade, s.workflow_state, s.submitted_at
         FROM assignments a
-        LEFT JOIN submissions s ON s.assignment_id = a.id
-        WHERE a.course_id = ?
+        LEFT JOIN submissions s ON s.assignment_id = a.id AND s.google_id = a.google_id
+        WHERE a.google_id = ? AND a.course_id = ?
         ORDER BY a.due_at
-    """, (course_id,)).fetchall()
+    """, (gid, course_id)).fetchall()
     conn.close()
     grades = [dict(r) for r in rows]
     total_pts  = sum(g["points_possible"] or 0 for g in grades if g.get("score") is not None)
     earned_pts = sum(g["score"] or 0 for g in grades if g.get("score") is not None)
     graded_count = sum(1 for g in grades if g.get("score") is not None)
     for g in grades:
-        sub_types = json.loads(g.get("submission_types") or "[]")
+        sub_types = load_json(g.get("submission_types") or "[]")
         g["_is_quiz"]  = "online_quiz" in sub_types
         g["_due_fmt"]  = fmt_date(g.get("due_at", ""))
         if g.get("score") is not None and g.get("points_possible"):
@@ -438,8 +477,8 @@ def assignment_detail(course_id, assignment_id):
     if not assignment:
         abort(404)
     sub        = get_submission(assignment_id)
-    sub_types  = json.loads(assignment.get("submission_types", "[]"))
-    raw        = json.loads(assignment.get("raw", "{}"))
+    sub_types  = load_json(assignment.get("submission_types", "[]"))
+    raw        = load_json(assignment.get("raw", "{}"))
     status_label, status_class = submission_status(sub, assignment)
     is_quiz        = "online_quiz" in sub_types
     is_text        = "online_text_entry" in sub_types
@@ -466,20 +505,22 @@ def assignment_detail(course_id, assignment_id):
 @app.route("/courses/<int:course_id>/pages/<path:slug>")
 @login_required
 def page_view(course_id, slug):
-    from storage.database import get_courses, get_conn
+    from storage.database import get_courses, get_conn, get_current_google_id
     courses = get_courses()
     course  = next((c for c in courses if c["id"] == course_id), None)
     if not course:
         abort(404)
     course["color"] = course_color(course_id)
+    gid = get_current_google_id()
     conn = get_conn()
     row = conn.execute(
-        "SELECT * FROM pages WHERE course_id=? AND url=?", (course_id, slug)
+        "SELECT * FROM pages WHERE google_id=? AND course_id=? AND url=?",
+        (gid, course_id, slug)
     ).fetchone()
     if not row:
         row = conn.execute(
-            "SELECT * FROM pages WHERE course_id=? AND url LIKE ?",
-            (course_id, f"%{slug}%")
+            "SELECT * FROM pages WHERE google_id=? AND course_id=? AND url LIKE ?",
+            (gid, course_id, f"%{slug}%")
         ).fetchone()
     conn.close()
     if not row:
@@ -521,9 +562,9 @@ def api_complete(assignment_id):
 
         while True:
             try:
-                kind, val = q.get(timeout=120)
+                kind, val = q.get(timeout=300)
             except queue.Empty:
-                yield f"data: {_json.dumps({'type':'error','msg':'Timeout'})}\n\n"
+                yield f"data: {_json.dumps({'type':'error','msg':'Timeout (300s)'})}\n\n"
                 break
             if kind == "progress":
                 yield f"data: {_json.dumps({'type':'progress','msg':val})}\n\n"
@@ -577,14 +618,14 @@ def api_quiz(assignment_id):
     assignment = get_assignment(assignment_id)
     if not assignment:
         return jsonify({"error": "Not found"}), 404
-    raw     = json.loads(assignment.get("raw", "{}"))
+    raw     = load_json(assignment.get("raw", "{}"))
     quiz_id = raw.get("quiz_id")
     if not quiz_id:
         return jsonify({"error": "Not a quiz assignment"}), 400
     from storage.users import load_user_session
     cookies, api_token = load_user_session(session["google_id"])
-    if not cookies:
-        return jsonify({"error": "Session hết hạn. Vào Settings → Re-sync."}), 401
+    if not api_token and not cookies:
+        return jsonify({"error": "Chưa có session. Vào dashboard → Sync Canvas trước."}), 401
 
     google_id = session["google_id"]
 
@@ -616,9 +657,9 @@ def api_quiz(assignment_id):
 
         while True:
             try:
-                kind, val = q.get(timeout=180)
+                kind, val = q.get(timeout=600)
             except queue.Empty:
-                yield f"data: {_json.dumps({'type':'error','msg':'Timeout'})}\n\n"
+                yield f"data: {_json.dumps({'type':'error','msg':'Timeout (600s)'})}\n\n"
                 break
             if kind == "progress":
                 yield f"data: {_json.dumps({'type':'progress','msg':val})}\n\n"

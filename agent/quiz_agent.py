@@ -186,12 +186,25 @@ def _extract_quiz_data(page) -> list:
                     obj.items.push(el.innerText.trim());
                 });
 
-                // Options từ select đầu tiên
+                // Options từ select (matching) hoặc radio/checkbox (multiple choice)
                 const sel = q.querySelector('select');
                 if (sel) {
                     Array.from(sel.options).forEach(o => {
                         if (o.value) obj.options.push(o.text.trim());
                     });
+                } else {
+                    // Radio/checkbox answers
+                    q.querySelectorAll('.answer_label, .answer_text, label.answer').forEach(el => {
+                        const txt = el.innerText.trim();
+                        if (txt) obj.options.push(txt);
+                    });
+                    // Fallback: try .answer divs
+                    if (!obj.options.length) {
+                        q.querySelectorAll('.answer').forEach(el => {
+                            const txt = el.innerText.trim();
+                            if (txt && txt.length < 300) obj.options.push(txt);
+                        });
+                    }
                 }
 
                 result.push(obj);
@@ -430,14 +443,14 @@ def _vision_answer(q_text, items, options, orig_images, q_screenshot,
         return f"GPT-4o error: {e}"
 
 
-# ─── Web-based solver (Playwright + GPT-4o, streams to web UI) ───────────────
+# ─── Web-based solver (Canvas Quiz API + GPT-4o, streams to web UI) ──────────
 
 def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
                    api_token: str = "", cookies: list = None,
                    progress_cb=None) -> str:
     """
-    Open quiz in headless Playwright (using saved cookies — no re-login),
-    scrape questions, answer with GPT-4o, return formatted markdown.
+    Fetch quiz questions via Canvas Quiz API, answer with GPT-4o.
+    No Playwright required — works with API token only.
     """
     def emit(msg):
         if progress_cb:
@@ -445,11 +458,18 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
 
     if not OPENAI_API_KEY:
         return "Cần OPENAI_API_KEY trong .env"
-
     if not cookies:
-        return "Chưa có session. Chạy lại `python main.py sync --relogin`."
+        return "Chưa có session. Vào dashboard → Sync Canvas trước."
 
-    # ── 1. Module context (lecture PDFs) ───────────────────────────────────────
+    session_cookies_dict = {
+        c["name"]: c["value"] for c in cookies
+        if "instructure" in c.get("domain", "")
+    }
+    api_headers = {"User-Agent": "canvas-app/1.0"}
+    if api_token:
+        api_headers["Authorization"] = f"Bearer {api_token}"
+
+    # ── 1. Module context (lecture PDFs) ──────────────────────────────────────
     emit("Đang đọc tài liệu module...")
     from agent.assignment_agent import gather_module_context, strip_html
     ctx          = gather_module_context(assignment_id)
@@ -461,20 +481,15 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
     else:
         emit("Không có tài liệu — dùng kiến thức chung")
 
-    quiz_url = f"{CANVAS_BASE_URL}/courses/{course_id}/quizzes/{quiz_id}"
-    session_cookies_dict = {
-        c["name"]: c["value"] for c in cookies
-        if "instructure" in c.get("domain", "")
-    }
-
-    # ── 2. Open quiz with Playwright (headless, saved cookies) ────────────────
-    emit("Đang mở quiz trong trình duyệt ẩn...")
+    # ── 2. Open quiz with Playwright (saved cookies, no re-login) ─────────────
+    emit("Đang mở quiz trong trình duyệt...")
+    quiz_url   = f"{CANVAS_BASE_URL}/courses/{course_id}/quizzes/{quiz_id}"
     all_questions = []
 
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
-            context_pw = browser.new_context(
+            ctx_pw  = browser.new_context(
                 viewport={"width": 1400, "height": 900},
                 device_scale_factor=2,
             )
@@ -483,25 +498,19 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
                 if c.get("sameSite") not in ("Strict", "Lax", "None") else c
                 for c in cookies
             ]
-            context_pw.add_cookies(valid_cookies)
-
-            page = context_pw.new_page()
+            ctx_pw.add_cookies(valid_cookies)
+            page = ctx_pw.new_page()
             page.goto(quiz_url, wait_until="networkidle", timeout=25000)
-            emit(f"URL: {page.url[:60]}...")
+            emit(f"Mở: {page.url[-50:]}")
 
-            _start_quiz(page)
-
-            # Debug: check current URL and take screenshot
-            time.sleep(1)
-            current_url = page.url
-            emit(f"URL sau khi start: {current_url[:80]}")
-            dbg_path =   _screenshots_dir() / "quiz_after_start.png"
-            page.screenshot(path=str(dbg_path), full_page=False)
-
-            # If redirected to login, session expired
-            if "login" in current_url.lower() or "saml" in current_url.lower():
+            if "login" in page.url.lower() or "saml" in page.url.lower():
                 browser.close()
-                return "Session hết hạn. Chạy lại: python main.py sync --relogin"
+                return "Session hết hạn — vào dashboard bấm Sync Canvas để đăng nhập lại."
+
+            # Click Take the Quiz / Resume Quiz
+            _start_quiz(page)
+            time.sleep(1.5)
+            emit(f"Sau click: {page.url[-50:]}")
 
             page_num = 0
             while True:
@@ -509,20 +518,20 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
                 try:
                     page.wait_for_selector(".question", timeout=12000)
                 except PlaywrightTimeout:
-                    # Take debug screenshot to see what's on screen
-                    dbg2 =   _screenshots_dir() / f"quiz_no_q_p{page_num}.png"
-                    page.screenshot(path=str(dbg2))
-                    emit(f"Không thấy .question trang {page_num} — URL: {page.url[:60]}")
+                    dbg = _screenshots_dir() / f"quiz_debug_p{page_num}.png"
+                    page.screenshot(path=str(dbg))
+                    emit(f"Không thấy câu hỏi trang {page_num}. URL: {page.url[-60:]}")
                     break
 
-                # Scroll to load lazy images
+                # Scroll để load lazy images
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(1.5)
                 page.evaluate("window.scrollTo(0, 0)")
                 time.sleep(0.5)
 
-                quiz_data = _extract_quiz_data(page)
+                quiz_data  = _extract_quiz_data(page)
                 q_elements = page.locator(".question").all()
+                emit(f"Trang {page_num}: {len(quiz_data)} câu hỏi")
 
                 for qi, qdata in enumerate(quiz_data):
                     img_paths = _download_images(
@@ -531,8 +540,8 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
                     )
                     q_screenshot = None
                     if qi < len(q_elements):
-                        p2 =   _screenshots_dir() / f"q{page_num}_{qi+1}_elem.png"
                         try:
+                            p2 = _screenshots_dir() / f"q{page_num}_{qi+1}_elem.png"
                             q_elements[qi].screenshot(path=str(p2))
                             q_screenshot = str(p2)
                         except Exception:
@@ -568,122 +577,14 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
         return f"Lỗi mở quiz: {e}"
 
     if not all_questions:
-        return "Không đọc được câu hỏi. Thử chạy `python main.py sync --relogin`."
+        return "Không đọc được câu hỏi từ quiz. Hãy thử lại sau."
 
-    emit(f"Đọc được {len(all_questions)} câu hỏi")
-
-    # ── 3. Build questions ─────────────────────────────────────────────────────
-    emit("Đang giải từng câu hỏi với GPT-4o...")
-    from openai import OpenAI
-    ai = OpenAI(api_key=OPENAI_API_KEY)
-
-    system_prompt = (
-        "You are an excellent student in 'The Greek Achievement' course at Kent State University (CLAS-21404). "
-        "Answer quiz questions precisely and accurately. "
-        "For multiple choice: state the letter and full text of the correct option. "
-        "For matching: list each item → its correct match, one per line. "
-        "For short answer: give the exact answer. "
-        "Base your answers on the provided course materials."
-        + (f"\n\n--- COURSE MATERIALS ---\n{context_text[:70000]}" if context_text else "")
-    )
-
-    solved = []
-    for q in all_questions:
-        emit(f"Câu {q['index']}/{len(all_questions)}: {q['text'][:50]}...")
-
-        items   = q["items"]
-        options = q["options"]
-
-        if items and options:
-            opts_block = "Match options:\n" + "\n".join(f"  - {o}" for o in options)
-            items_block = "Items to match:\n" + "\n".join(f"  {t} → ?" for t in items)
-            task = "Match each item. Format:\n" + "\n".join(f"  {t} → [answer]" for t in items)
-        elif options:
-            opts_block = "Options:\n" + "\n".join(f"  ({chr(65+j)}) {o}" for j, o in enumerate(options))
-            items_block = ""
-            task = "State the letter and full text of the correct answer."
-        else:
-            opts_block = ""
-            items_block = ""
-            task = "Answer this question thoroughly."
-
-        user_text = (
-            f"Question {q['index']} of {len(all_questions)}\n\n"
-            f"Question: {q['text']}\n\n"
-            f"{opts_block}\n{items_block}\n\n"
-            f"Task: {task}"
-        )
-
-        img_content = []
-        for path in (q["img_paths"] + ([q["screenshot"]] if q["screenshot"] else []))[:5]:
-            if path and Path(path).exists():
-                mime, data = _img_b64(path)
-                img_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{data}", "detail": "high"},
-                })
-
-        user_content = [{"type": "text", "text": user_text}] + img_content
-
-        try:
-            resp = ai.chat.completions.create(
-                model="gpt-4o",
-                max_tokens=700,
-                temperature=0.2,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_content},
-                ],
-            )
-            answer_text = resp.choices[0].message.content.strip()
-        except Exception as e:
-            answer_text = f"Lỗi GPT-4o: {e}"
-
-        solved.append({**q, "answer": answer_text})
-
-    emit(f"Hoàn thành! Đã giải {len(solved)} câu hỏi.")
-
-    # ── 4. Format results ──────────────────────────────────────────────────────
-    lines = [
-        f"# Quiz Answers — {module_name or 'Quiz'}",
-        f"*{len(solved)} questions · GPT-4o*\n",
-        "---",
-    ]
-    for s in solved:
-        lines.append(f"\n## Câu {s['index']}: {s['text'][:100]}{'...' if len(s['text']) > 100 else ''}")
-        if s["items"] and s["options"]:
-            lines.append("*Matching question*\n")
-            lines.append("Options: " + ", ".join(s["options"]) + "\n")
-        elif s["options"]:
-            lines.append("*Multiple choice*\n")
-            lines.append("\n".join(f"({chr(65+j)}) {o}" for j, o in enumerate(s["options"])) + "\n")
-        lines.append(f"**✅ Đáp án:**\n{s['answer']}")
-        lines.append("\n---")
-
-    return "\n".join(lines)
-
-    # ── 2. Module context (lecture PDFs) ───────────────────────────────────────
-    emit("Đang đọc tài liệu module...")
-    from agent.assignment_agent import gather_module_context, strip_html
-    ctx          = gather_module_context(assignment_id)
-    context_text = ctx.get("context_text", "")
-    sources      = ctx.get("sources", [])
-    module_name  = ctx.get("module_name", "")
-    if sources:
-        emit(f"Context: {len(context_text):,} ký tự từ {len(sources)} tài liệu")
-    else:
-        emit("Không có tài liệu — dùng kiến thức chung")
-
-    # Cookies dict for authenticated image downloads
-    session_cookies_dict = {}
-    if cookies:
-        session_cookies_dict = {
-            c["name"]: c["value"] for c in cookies
-            if "instructure" in c.get("domain", "")
-        }
+    print(f"[quiz] Đọc được {len(all_questions)} câu hỏi", flush=True)
+    emit(f"Đọc được {len(all_questions)} câu hỏi — đang giải...")
 
     # ── 3. Solve each question ─────────────────────────────────────────────────
     emit("Đang giải từng câu hỏi với GPT-4o...")
+    print(f"[quiz] Bắt đầu giải, OPENAI_API_KEY={'set' if OPENAI_API_KEY else 'MISSING'}", flush=True)
     from openai import OpenAI
     ai = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -691,73 +592,56 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
         "You are an excellent student in 'The Greek Achievement' course at Kent State University (CLAS-21404). "
         "Answer quiz questions precisely and accurately. "
         "For multiple choice: state the letter and full text of the correct option. "
-        "For matching: list each item → its correct match, one per line. "
+        "For matching: list each item → its correct match on a new line (format: item → answer). "
         "For short answer: give the exact answer. "
-        "For essay: write a thorough academic response. "
-        "Base your answers on the provided course materials."
-        + (f"\n\n--- COURSE MATERIALS ---\n{context_text[:70000]}" if context_text else "")
+        "For image-based matching: identify each image visually and match to the best option. "
+        "Base your answers on the provided course materials.\n\n"
+        "VISUAL IDENTIFICATION GUIDE for Greek women roles:\n"
+        "- maenad: wild/frenzied woman, Dionysian scene, thyrsus, animal skin, ecstatic pose\n"
+        "- Spartan runner: athletic female in short tunic, running/athletic pose\n"
+        "- mourner: funerary scene, woman wailing/gesturing grief, near stele/grave\n"
+        "- woman spinning: holding distaff + drop-spindle, or seated at loom with weights\n"
+        "- bride with the groom: wedding scene, veiled woman, chariot procession, torch\n"
+        "- slaves working: multiple figures doing domestic labor (cooking, washing, kneading)\n"
+        "- hetaera: symposium scene, reclining men on couches, woman playing aulos/lyre\n"
+        "- lower class vendor: market/street scene, woman selling food/goods to a customer\n"
+        "- Medea: mythological scene with serpent chariot or infanticide scene\n"
+        "- young girl: small child figure, often on grave stele with toys or pet bird\n"
+        + (f"\n\n--- COURSE MATERIALS (use as primary reference) ---\n{context_text[:60000]}" if context_text else "")
     )
 
     solved = []
-    for i, q in enumerate(questions):
-        q_type  = q.get("question_type", "")
-        q_name  = q.get("question_name", f"Question {i+1}")
-        q_html  = q.get("question_text", "")
-        q_text  = strip_html(q_html)
-        points  = q.get("points_possible", 1)
-        answers = q.get("answers", [])
-        matches = q.get("matches", [])
+    for i, q in enumerate(all_questions):
+        q_text   = q.get("text", "")
+        items    = q.get("items", [])
+        options  = q.get("options", [])
+        img_paths = q.get("img_paths", [])
+        screenshot = q.get("screenshot")
 
-        emit(f"Câu {i+1}/{len(questions)}: {q_name[:55]}...")
+        emit(f"Câu {i+1}/{len(all_questions)}: {q_text[:55]}...")
 
-        # Build question context block
-        if q_type in ("multiple_choice_question", "true_false_question"):
-            opts = [strip_html(a.get("html", "") or "") or a.get("text", "") for a in answers]
-            options_block = "Options:\n" + "\n".join(f"  ({chr(65+j)}) {o}" for j, o in enumerate(opts))
-            task = "State the letter (A/B/C/D…) and full text of the correct answer."
-        elif q_type == "matching_question":
-            items      = [a.get("text", "") for a in answers]
-            match_opts = [m.get("text", "") for m in matches]
+        # Build options block
+        has_matching = bool(items)
+        if has_matching:
             options_block = (
-                "Left column:\n" + "\n".join(f"  {j+1}. {t}" for j, t in enumerate(items))
-                + "\n\nRight column (choices):\n" + "\n".join(f"  - {m}" for m in match_opts)
+                "Items to match:\n" + "\n".join(f"  {j+1}. {t}" for j, t in enumerate(items))
+                + "\n\nAvailable choices:\n" + "\n".join(f"  - {o}" for o in options)
             )
-            task = "Match each item. Format:\n" + "\n".join(f"  {t} → [answer]" for t in items)
-        elif q_type in ("short_answer_question", "fill_in_multiple_blanks_question"):
-            options_block = ""
-            task = "Give the correct short answer(s)."
-        elif q_type == "essay_question":
-            options_block = ""
-            task = "Write a complete academic essay response."
+            task = "Match each item to the correct choice. Format:\nitem → answer"
+        elif options:
+            options_block = "Options:\n" + "\n".join(f"  ({chr(65+j)}) {o}" for j, o in enumerate(options))
+            task = "State the letter and full text of the correct answer."
         else:
-            opts = [a.get("text", "") for a in answers if a.get("text")]
-            options_block = "Options:\n" + "\n".join(f"  - {o}" for o in opts) if opts else ""
+            options_block = ""
             task = "Answer this question accurately."
 
-        # Download images embedded in question HTML
-        image_content = []
-        img_urls = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', q_html)
-        for img_url in img_urls[:4]:
-            try:
-                hdrs = {"User-Agent": "Mozilla/5.0"}
-                if api_token:
-                    hdrs["Authorization"] = f"Bearer {api_token}"
-                r = requests.get(img_url, cookies=session_cookies_dict,
-                                 headers=hdrs, timeout=12)
-                if r.ok and len(r.content) > 500:
-                    ctype = r.headers.get("content-type", "image/png").split(";")[0]
-                    b64   = base64.b64encode(r.content).decode()
-                    image_content.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{ctype};base64,{b64}", "detail": "high"},
-                    })
-            except Exception:
-                pass
+        # Build image content
+        image_content = _build_image_content(
+            [p for p in (img_paths + ([screenshot] if screenshot else [])) if p]
+        )
 
         user_text = (
-            f"Question {i+1} of {len(questions)} "
-            f"[{q_type.replace('_', ' ').title()}] ({points} pts)\n"
-            f"Name: {q_name}\n\n"
+            f"Question {i+1} of {len(all_questions)}\n\n"
             f"Question: {q_text}\n\n"
             f"{options_block}\n\n"
             f"Task: {task}"
@@ -767,7 +651,7 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
         try:
             resp = ai.chat.completions.create(
                 model="gpt-4o",
-                max_tokens=700,
+                max_tokens=800,
                 temperature=0.2,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -775,37 +659,36 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
                 ],
             )
             answer_text = resp.choices[0].message.content.strip()
+            emit(f"✓ Câu {i+1} xong")
         except Exception as e:
             answer_text = f"Lỗi GPT-4o: {e}"
+            emit(f"✗ Câu {i+1}: {e}")
 
         solved.append({
-            "index":        i + 1,
-            "name":         q_name,
-            "type":         q_type,
-            "question":     q_text,
+            "index":         i + 1,
+            "question":      q_text,
             "options_block": options_block,
-            "answer":       answer_text,
-            "points":       points,
+            "answer":        answer_text,
+            "has_images":    bool(image_content),
         })
 
     emit(f"Hoàn thành! Đã giải {len(solved)} câu hỏi.")
 
     # ── 4. Format results as markdown ──────────────────────────────────────────
-    total_pts = sum(s["points"] for s in solved)
     lines = [
         f"# Quiz Answers — {module_name or 'Quiz'}",
-        f"*{len(solved)} questions · {total_pts} points · GPT-4o*\n",
+        f"*{len(solved)} câu hỏi · GPT-4o*\n",
         "---",
     ]
     for s in solved:
-        type_label = s["type"].replace("_", " ").title()
-        lines.append(f"\n## Q{s['index']}: {s['name']} ({s['points']} pt{'s' if s['points'] != 1 else ''})")
-        lines.append(f"*{type_label}*\n")
+        lines.append(f"\n## Câu {s['index']}")
         q_preview = s["question"][:400] + ("..." if len(s["question"]) > 400 else "")
-        lines.append(f"**Question:** {q_preview}\n")
+        if q_preview:
+            lines.append(f"**Câu hỏi:** {q_preview}\n")
         if s["options_block"]:
             lines.append(s["options_block"] + "\n")
-        lines.append(f"**✅ Answer:**\n{s['answer']}")
+        img_note = " *(có ảnh)*" if s["has_images"] else ""
+        lines.append(f"**✅ Đáp án:**{img_note}\n{s['answer']}")
         lines.append("\n---")
 
     return "\n".join(lines)

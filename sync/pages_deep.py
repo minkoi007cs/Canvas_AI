@@ -9,7 +9,7 @@ import requests
 from pathlib import Path
 from html.parser import HTMLParser
 from rich.console import Console
-from storage.database import get_conn, upsert_page, upsert_file
+from storage.database import get_conn, upsert_page, upsert_file, get_current_google_id
 from config import CANVAS_BASE_URL, get_user_files_cache_dir
 
 console = Console()
@@ -84,27 +84,33 @@ def _is_downloadable(url):
 
 # ─── Main sync function ────────────────────────────────────────────────────────
 
-def sync_pages_deep(cookies):
+def sync_pages_deep(cookies=None, api_token: str = ""):
     """
     Fetch all page bodies that are referenced in module items.
     Also parse each page to find and download embedded files.
     """
-    session_cookies = {c["name"]: c["value"]
-                       for c in cookies if "instructure" in c.get("domain", "")}
-    headers = {"User-Agent": "Mozilla/5.0"}
+    if api_token:
+        headers = {"Authorization": f"Bearer {api_token}", "User-Agent": "Mozilla/5.0"}
+        session_cookies = {}
+    else:
+        session_cookies = {c["name"]: c["value"]
+                           for c in (cookies or []) if "instructure" in c.get("domain", "")}
+        headers = {"User-Agent": "Mozilla/5.0"}
 
+    gid = get_current_google_id()
     conn = get_conn()
     # Get all page-type module items that don't yet have body in pages table
     rows = conn.execute("""
         SELECT DISTINCT mi.course_id, mi.page_url
         FROM module_items mi
-        WHERE mi.type = 'Page' AND mi.page_url != ''
+        WHERE mi.google_id = ? AND mi.type = 'Page' AND mi.page_url != ''
         AND NOT EXISTS (
             SELECT 1 FROM pages p
-            WHERE p.url = mi.page_url AND p.course_id = mi.course_id
+            WHERE p.google_id = mi.google_id AND p.url = mi.page_url
+            AND p.course_id = mi.course_id
             AND p.body IS NOT NULL AND p.body != ''
         )
-    """).fetchall()
+    """, (gid,)).fetchall()
     conn.close()
 
     console.print(f"[blue]Fetching {len(rows)} pages...[/blue]")
@@ -128,14 +134,16 @@ def sync_pages_deep(cookies):
     console.print("[green]✓ Pages fetched[/green]")
 
     # Now download files embedded in pages
-    _download_page_files(session_cookies, headers)
+    _download_page_files(session_cookies, headers, api_token=api_token)
 
 
-def _download_page_files(session_cookies, headers):
+def _download_page_files(session_cookies, headers, api_token: str = ""):
     """Parse page HTML bodies, find embedded files, download them."""
+    gid = get_current_google_id()
     conn = get_conn()
     pages = conn.execute(
-        "SELECT id, course_id, title, url, body FROM pages WHERE body != '' AND body IS NOT NULL"
+        "SELECT id, course_id, title, url, body FROM pages WHERE google_id=? AND body != '' AND body IS NOT NULL",
+        (gid,)
     ).fetchall()
     conn.close()
 
@@ -173,17 +181,18 @@ def _download_page_files(session_cookies, headers):
         # Download each file
         for kind, fid, url in file_links:
             if kind == "canvas_file":
-                _ensure_canvas_file(fid, course_id, session_cookies, headers)
+                _ensure_canvas_file(fid, course_id, session_cookies, headers, api_token=api_token)
                 total_downloaded += 1
 
     console.print(f"[green]✓ Processed {total_downloaded} embedded file references[/green]")
 
 
-def _ensure_canvas_file(file_id, course_id, session_cookies, headers):
+def _ensure_canvas_file(file_id, course_id, session_cookies, headers, api_token: str = ""):
     """Fetch file metadata and download if not already local."""
+    gid = get_current_google_id()
     conn = get_conn()
     existing = conn.execute(
-        "SELECT local_path FROM files WHERE id=?", (file_id,)
+        "SELECT local_path FROM files WHERE google_id=? AND id=?", (gid, file_id,)
     ).fetchone()
     conn.close()
 
@@ -193,7 +202,10 @@ def _ensure_canvas_file(file_id, course_id, session_cookies, headers):
     # Fetch file metadata
     try:
         meta_url = f"{CANVAS_BASE_URL}/api/v1/files/{file_id}"
-        r = requests.get(meta_url, cookies=session_cookies, headers=headers, timeout=10)
+        _h = {**headers}
+        if api_token:
+            _h["Authorization"] = f"Bearer {api_token}"
+        r = requests.get(meta_url, cookies=session_cookies, headers=_h, timeout=10)
         if not r.ok:
             return
         f = r.json()

@@ -17,6 +17,8 @@ CANVAS_USERNAME = os.getenv("CANVAS_USERNAME", "")
 CANVAS_PASSWORD = os.getenv("CANVAS_PASSWORD", "")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")
 
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 FLASK_SECRET_KEY     = os.getenv("FLASK_SECRET_KEY", os.urandom(32).hex())
