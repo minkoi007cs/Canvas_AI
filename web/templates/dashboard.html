@@ -130,7 +130,8 @@ async function triggerSync() {
             setTimeout(() => location.reload(), 800);
           } else if ((pd.status || '').startsWith('error')) {
             clearInterval(poll);
-            status.textContent = '✗ ' + pd.status.replace('error:', '');
+            const errMsg = (pd.status || '').replace('error:', '').trim() || 'Unknown error';
+            status.textContent = '✗ ' + errMsg;
             status.className = 'text-sm text-red-500';
             btn.disabled = false;
             btn.classList.remove('opacity-60', 'cursor-not-allowed');
