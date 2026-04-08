@@ -2,6 +2,8 @@
 User registry — lưu Google account + Canvas credentials per user.
 Dùng chung PostgreSQL database (DATABASE_URL).
 """
+import os
+import base64
 import json
 from pathlib import Path
 import psycopg2
@@ -12,14 +14,24 @@ from config import BASE_DIR, DATABASE_URL
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-# Encryption key for Canvas passwords (stored in data/secret.key)
-_KEY_FILE = DATA_DIR / "secret.key"
-
 
 def _get_fernet() -> Fernet:
-    if not _KEY_FILE.exists():
-        _KEY_FILE.write_bytes(Fernet.generate_key())
-    return Fernet(_KEY_FILE.read_bytes())
+    """
+    Derive a stable Fernet key from FLASK_SECRET_KEY env var so it
+    survives container restarts/redeploys on Railway.
+    Falls back to a file-based key for local dev.
+    """
+    secret = os.getenv("FLASK_SECRET_KEY", "")
+    if secret:
+        # Fernet key must be 32 url-safe base64 bytes
+        raw = secret.encode()[:32].ljust(32, b"0")
+        key = base64.urlsafe_b64encode(raw)
+        return Fernet(key)
+    # Local fallback: file-based key
+    key_file = DATA_DIR / "secret.key"
+    if not key_file.exists():
+        key_file.write_bytes(Fernet.generate_key())
+    return Fernet(key_file.read_bytes())
 
 
 def _db_url() -> str:
