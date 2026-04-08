@@ -2,11 +2,7 @@
 builder = "dockerfile"
 
 [deploy]
-startCommand = "gunicorn web.app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
 healthcheckPath = "/login"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-
-[[volumes]]
-mountPath = "/app/data"
