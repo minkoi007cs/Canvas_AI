@@ -218,7 +218,8 @@ def _trigger_sync(google_id: str):
             try:
                 cookies, api_token = login(username, password, headless=headless)
             except Exception as login_err:
-                update_sync_status(google_id, f"error:Login failed: {login_err}")
+                err = str(login_err) or repr(login_err) or type(login_err).__name__
+                update_sync_status(google_id, f"error:Login failed: {err}")
                 return
             if not cookies and not api_token:
                 update_sync_status(google_id, "error:Login failed. Check credentials.")
@@ -249,8 +250,9 @@ def _trigger_sync(google_id: str):
             update_sync_status(google_id, "done")
         except Exception as e:
             import traceback
-            update_sync_status(google_id, f"error:{e}")
-            print(f"[sync error {google_id}]: {e}", flush=True)
+            err_msg = str(e) or repr(e) or type(e).__name__
+            update_sync_status(google_id, f"error:{err_msg}")
+            print(f"[sync error {google_id}]: {repr(e)}", flush=True)
             traceback.print_exc()
 
     threading.Thread(target=_run, daemon=True).start()
