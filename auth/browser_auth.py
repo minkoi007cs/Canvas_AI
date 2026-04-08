@@ -33,15 +33,12 @@ def login(username: str = "", password: str = "", headless: bool = False):
         page = context.new_page()
 
         try:
-            # 1. Navigate to Canvas
-            console.print(f"  [cyan]→ Accessing Canvas...[/cyan]")
-            page.goto(CANVAS_BASE_URL, wait_until="domcontentloaded", timeout=30000)
-            console.print(f"  [green]✓ Canvas page loaded[/green]")
-
-            # 2. Click FlashLine login button
-            console.print(f"  [cyan]→ Finding FlashLine login button...[/cyan]")
-            _click_login_button(page)
-            console.print(f"  [green]✓ FlashLine login initiated[/green]")
+            # 1. Navigate directly to Canvas login with FlashLine (Shibboleth)
+            console.print(f"  [cyan]→ Navigating to Canvas login page...[/cyan]")
+            # Try direct login URL with Shibboleth provider
+            login_url = f"{CANVAS_BASE_URL}/login?authentication_provider=saml"
+            page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
+            console.print(f"  [green]✓ Login page loaded[/green]")
 
             # 3. Wait for and fill Microsoft email form
             console.print(f"  [cyan]→ Filling Microsoft email form...[/cyan]")
@@ -93,56 +90,45 @@ def login(username: str = "", password: str = "", headless: bool = False):
             raise
 
 
-def _click_login_button(page):
-    """Click the FlashLine login button on Canvas homepage."""
-    selectors = [
-        "a:has-text('FlashLine')",
-        "a[href*='saml']",
-        "a[href*='sso']",
-        ".btn-primary:visible",
-        "a:has-text('Log In')",
-    ]
-
-    for sel in selectors:
-        try:
-            btn = page.locator(sel).first
-            if btn.is_visible(timeout=3000):
-                btn.click()
-                page.wait_for_load_state("domcontentloaded", timeout=10000)
-                return
-        except:
-            continue
-
-    # If no button found, page might already be at login
-    console.print("  [dim]No FlashLine button found, continuing...[/dim]")
-
-
 def _fill_email_form(page, username: str):
-    """Fill and submit the Microsoft email form."""
-    # Wait for email form to be visible
+    """Fill and submit the email/username form."""
+    # Wait for form to be visible
     try:
         page.wait_for_load_state("domcontentloaded", timeout=10000)
     except:
         pass
 
-    # Try common email field selectors
+    # Try multiple selector strategies for different login page variations
     email_selectors = [
-        "input[name='loginfmt']",     # Microsoft standard
+        # Canvas Shibboleth login
+        "input[name='j_username']",
+        "input[id='j_username']",
+        # Canvas standard login
+        "input[name='pseudonym[unique_id]']",
+        "input[name='login']",
+        # Microsoft / Okta
+        "input[name='loginfmt']",
         "input[type='email']",
         "input[name='username']",
-        "#i0116",                      # Microsoft Office 365
+        "#i0116",
+        # Generic fallback
+        "input:visible",
     ]
 
     email_filled = False
     for sel in email_selectors:
         try:
             field = page.locator(sel).first
-            if field.is_visible(timeout=5000):
+            if field.is_visible(timeout=3000):
                 field.click()
                 field.clear()
                 field.fill(username)
-                email_filled = True
-                break
+                # Verify it was filled
+                val = field.input_value()
+                if val and len(val) > 0:
+                    console.print(f"  [green]✓ Email field filled ({sel})[/green]")
+                    email_filled = True
+                    break
         except:
             continue
 
@@ -152,12 +138,15 @@ def _fill_email_form(page, username: str):
     # Submit form - try multiple methods
     page.wait_for_timeout(300)
 
-    # Method 1: Click Next button
+    # Method 1: Click submit button
     submit_selectors = [
-        "input[type='submit']",
         "button[type='submit']",
-        "#idSIButton9",              # Microsoft standard button ID
+        "input[type='submit']",
+        "#idSIButton9",              # Microsoft button ID
         "button:has-text('Next')",
+        "button:has-text('Submit')",
+        "input[name='submit']",
+        "button.btn-primary",        # Bootstrap primary button
     ]
 
     submitted = False
@@ -165,6 +154,7 @@ def _fill_email_form(page, username: str):
         try:
             btn = page.locator(sel).first
             if btn.is_visible(timeout=2000):
+                console.print(f"  [dim]Clicking button: {sel}[/dim]")
                 btn.click()
                 page.wait_for_timeout(2000)
                 submitted = True
@@ -172,26 +162,32 @@ def _fill_email_form(page, username: str):
         except:
             continue
 
-    # Method 2: Press Enter
+    # Method 2: Press Enter (most reliable)
     if not submitted:
         try:
-            page.press("body", "Enter")
+            console.print(f"  [dim]Pressing Enter key[/dim]")
+            page.press("input", "Enter")
             page.wait_for_timeout(2000)
             submitted = True
         except:
             pass
 
-    # Method 3: JavaScript submit
+    # Method 3: JavaScript form submit
     if not submitted:
         try:
+            console.print(f"  [dim]JavaScript form.submit()[/dim]")
             page.evaluate("document.querySelector('form')?.submit()")
             page.wait_for_timeout(2000)
+            submitted = True
         except:
             pass
 
+    if not submitted:
+        console.print(f"  [yellow]Warning: Could not find submit button, but continuing anyway[/yellow]")
+
 
 def _fill_password_form(page, password: str):
-    """Fill and submit the Microsoft password form."""
+    """Fill and submit the password form."""
     # Wait for password form to appear
     try:
         page.wait_for_load_state("domcontentloaded", timeout=10000)
@@ -200,11 +196,18 @@ def _fill_password_form(page, password: str):
 
     page.wait_for_timeout(500)
 
-    # Try common password field selectors
+    # Try multiple selector strategies
     password_selectors = [
-        "input[name='passwd']",       # Microsoft standard
+        # Canvas Shibboleth login
+        "input[name='j_password']",
+        "input[id='j_password']",
+        # Canvas standard login
+        "input[name='pseudonym[password]']",
+        "input[name='password']",
+        # Microsoft / Okta
+        "input[name='passwd']",
         "input[type='password']",
-        "#i0118",                      # Microsoft Office 365
+        "#i0118",
     ]
 
     password_filled = False
@@ -215,8 +218,12 @@ def _fill_password_form(page, password: str):
                 field.click()
                 field.clear()
                 field.fill(password)
-                password_filled = True
-                break
+                # Verify it was filled (just check length, not the actual value for security)
+                val = field.input_value()
+                if val and len(val) > 0:
+                    console.print(f"  [green]✓ Password field filled ({sel})[/green]")
+                    password_filled = True
+                    break
         except:
             continue
 
@@ -226,13 +233,16 @@ def _fill_password_form(page, password: str):
     # Submit form - try multiple methods
     page.wait_for_timeout(300)
 
-    # Method 1: Click Sign In button
+    # Method 1: Click submit button
     submit_selectors = [
-        "input[type='submit']",
         "button[type='submit']",
-        "#idSIButton9",              # Microsoft standard button ID
+        "input[type='submit']",
+        "#idSIButton9",              # Microsoft button ID
         "button:has-text('Sign in')",
         "button:has-text('Log in')",
+        "button:has-text('Submit')",
+        "input[name='submit']",
+        "button.btn-primary",        # Bootstrap primary button
     ]
 
     submitted = False
@@ -240,6 +250,7 @@ def _fill_password_form(page, password: str):
         try:
             btn = page.locator(sel).first
             if btn.is_visible(timeout=2000):
+                console.print(f"  [dim]Clicking button: {sel}[/dim]")
                 btn.click()
                 page.wait_for_timeout(2000)
                 submitted = True
@@ -247,22 +258,28 @@ def _fill_password_form(page, password: str):
         except:
             continue
 
-    # Method 2: Press Enter
+    # Method 2: Press Enter (most reliable)
     if not submitted:
         try:
-            page.press("body", "Enter")
+            console.print(f"  [dim]Pressing Enter key[/dim]")
+            page.press("input[type='password']", "Enter")
             page.wait_for_timeout(2000)
             submitted = True
         except:
             pass
 
-    # Method 3: JavaScript submit
+    # Method 3: JavaScript form submit
     if not submitted:
         try:
+            console.print(f"  [dim]JavaScript form.submit()[/dim]")
             page.evaluate("document.querySelector('form')?.submit()")
             page.wait_for_timeout(2000)
+            submitted = True
         except:
             pass
+
+    if not submitted:
+        console.print(f"  [yellow]Warning: Could not find submit button, but continuing anyway[/yellow]")
 
 
 def _handle_mfa(page):
