@@ -149,16 +149,15 @@ def user_detail(google_id):
     # Count canvas data if available
     canvas_stats = {}
     try:
-        from storage.database import set_user_context
+        from storage.database import set_user_context, get_conn
         from config import set_user_paths
         set_user_context(google_id)
         set_user_paths(google_id)
-        from storage.database import get_conn
         conn = get_conn()
-        canvas_stats["courses"]     = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
-        canvas_stats["assignments"] = conn.execute("SELECT COUNT(*) FROM assignments").fetchone()[0]
-        canvas_stats["files"]       = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-        canvas_stats["pages"]       = conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+        canvas_stats["courses"]     = conn.execute("SELECT COUNT(*) as n FROM courses WHERE google_id=?",     (google_id,)).fetchone()["n"]
+        canvas_stats["assignments"] = conn.execute("SELECT COUNT(*) as n FROM assignments WHERE google_id=?", (google_id,)).fetchone()["n"]
+        canvas_stats["files"]       = conn.execute("SELECT COUNT(*) as n FROM files WHERE google_id=?",       (google_id,)).fetchone()["n"]
+        canvas_stats["pages"]       = conn.execute("SELECT COUNT(*) as n FROM pages WHERE google_id=?",       (google_id,)).fetchone()["n"]
         conn.close()
     except Exception:
         pass

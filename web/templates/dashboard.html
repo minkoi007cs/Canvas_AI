@@ -12,7 +12,17 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-8">
     <h1 class="text-2xl font-bold text-gray-800">My Courses</h1>
-    <span class="text-sm text-gray-500">{{ courses|length }} courses</span>
+    <div class="flex items-center gap-3">
+      <span id="sync-status" class="text-sm text-gray-500"></span>
+      <button id="sync-btn" onclick="triggerSync()"
+              class="flex items-center gap-2 px-4 py-2 bg-canvas-blue text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+        <svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Sync Canvas
+      </button>
+    </div>
   </div>
 
   <!-- Course cards grid -->
@@ -75,10 +85,67 @@
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
         d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
     </svg>
-    <p class="text-lg font-medium mb-2">No courses found</p>
-    <p class="text-sm">Run <code class="bg-gray-100 px-1 rounded">python main.py sync</code> to fetch data</p>
+    <p class="text-lg font-medium mb-2">No courses yet</p>
+    <p class="text-sm mb-6">Click <strong>Sync Canvas</strong> above to fetch all your courses, modules, and assignments.</p>
+    <button onclick="triggerSync()"
+            class="px-6 py-3 bg-canvas-blue text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
+      Sync Canvas Now
+    </button>
   </div>
   {% endif %}
 
 </div>
+
+{% block scripts %}
+<script>
+async function triggerSync() {
+  const btn    = document.getElementById('sync-btn');
+  const icon   = document.getElementById('sync-icon');
+  const status = document.getElementById('sync-status');
+
+  btn.disabled = true;
+  btn.classList.add('opacity-60', 'cursor-not-allowed');
+  icon.classList.add('animate-spin');
+  status.textContent = 'Syncing… this may take a few minutes';
+  status.className = 'text-sm text-blue-600 font-medium';
+
+  try {
+    const r = await fetch('/api/sync', { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = 'Sync started — reloading when done…';
+      // Poll every 5s until sync_status != 'syncing'
+      const poll = setInterval(async () => {
+        try {
+          const pr = await fetch('/api/sync_status');
+          const pd = await pr.json();
+          if (pd.status === 'done') {
+            clearInterval(poll);
+            status.textContent = '✓ Sync complete!';
+            status.className = 'text-sm text-green-600 font-medium';
+            setTimeout(() => location.reload(), 800);
+          } else if ((pd.status || '').startsWith('error')) {
+            clearInterval(poll);
+            status.textContent = '✗ ' + pd.status;
+            status.className = 'text-sm text-red-500';
+            btn.disabled = false;
+            btn.classList.remove('opacity-60', 'cursor-not-allowed');
+            icon.classList.remove('animate-spin');
+          }
+        } catch(e) {}
+      }, 5000);
+    } else {
+      status.textContent = d.message || 'Error';
+      status.className = 'text-sm text-red-500';
+    }
+  } catch(e) {
+    status.textContent = 'Request failed';
+    status.className = 'text-sm text-red-500';
+    btn.disabled = false;
+    btn.classList.remove('opacity-60', 'cursor-not-allowed');
+    icon.classList.remove('animate-spin');
+  }
+}
+</script>
+{% endblock %}
 {% endblock %}

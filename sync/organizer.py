@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from rich.console import Console
 from storage.database import (
     get_courses, get_modules, get_module_items,
-    get_assignments, get_files, get_conn
+    get_assignments, get_files, get_conn, get_current_google_id, load_json
 )
 from config import CANVAS_BASE_URL, get_user_downloads_dir
 
@@ -62,29 +62,32 @@ def safe(name):
 
 def populate_module_items_from_raw():
     """Fill module_items table from raw module JSON already stored in DB."""
+    gid = get_current_google_id()
     conn = get_conn()
-    mod_count = conn.execute("SELECT COUNT(*) FROM modules").fetchone()[0]
-    item_count = conn.execute("SELECT COUNT(*) FROM module_items").fetchone()[0]
+    mod_count  = conn.execute("SELECT COUNT(*) as n FROM modules WHERE google_id=?",      (gid,)).fetchone()["n"]
+    item_count = conn.execute("SELECT COUNT(*) as n FROM module_items WHERE google_id=?", (gid,)).fetchone()["n"]
 
     # Re-populate if item count is much less than expected (each module has ~5 items avg)
     if item_count >= mod_count * 2:
         conn.close()
         return  # Already looks populated
 
-    conn.execute("DELETE FROM module_items")
-    rows = conn.execute("SELECT id, course_id, raw FROM modules").fetchall()
+    conn.execute("DELETE FROM module_items WHERE google_id=?", (gid,))
+    rows = conn.execute("SELECT id, course_id, raw FROM modules WHERE google_id=?", (gid,)).fetchall()
     total = 0
     for row in rows:
         mod_id = row["id"]
         course_id = row["course_id"]
-        data = json.loads(row["raw"])
+        data = load_json(row["raw"])
         for item in data.get("items", []):
             try:
                 conn.execute("""
-                    INSERT OR IGNORE INTO module_items
-                    (id, module_id, course_id, title, type, content_id, url, page_url, raw)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO module_items
+                    (google_id, id, module_id, course_id, title, type, content_id, url, page_url, raw)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (google_id, id) DO NOTHING
                 """, (
+                    gid,
                     item["id"],
                     mod_id,
                     course_id,
@@ -146,11 +149,11 @@ def build_folders():
             items = get_module_items(mod["id"])
 
             # Sort by position
-            items_sorted = sorted(items, key=lambda x: json.loads(x["raw"]).get("position", 999))
+            items_sorted = sorted(items, key=lambda x: load_json(x["raw"]).get("position", 999))
 
             item_pos = 0
             for item in items_sorted:
-                raw = json.loads(item["raw"])
+                raw = load_json(item["raw"])
                 item_type = item.get("type", "")
                 title = item.get("title", "untitled")
                 content_id = item.get("content_id")
@@ -216,7 +219,7 @@ def _write_page_item(folder, prefix, title, page, course_files_dir=None):
         return
 
     if not page or not page.get("body"):
-        content = f"# {title}\n\n_Content not synced yet. Run `python main.py sync` to fetch._\n"
+        content = f"# {title}\n\n_Content not synced yet. Run another sync from the web dashboard to fetch it._\n"
         dest.write_text(content, encoding="utf-8")
         return
 
@@ -314,8 +317,9 @@ def _parse_page_body(html, course_files_dir, mod_folder, prefix):
 
 def _find_local_file(file_id):
     """Look up local_path for a file ID in DB."""
+    gid = get_current_google_id()
     conn = get_conn()
-    row = conn.execute("SELECT local_path FROM files WHERE id=?", (file_id,)).fetchone()
+    row = conn.execute("SELECT local_path FROM files WHERE google_id=? AND id=?", (gid, file_id,)).fetchone()
     conn.close()
     return row["local_path"] if row else None
 
@@ -357,7 +361,7 @@ def _write_assignment_item(folder, prefix, a):
     if dest.exists():
         return
 
-    sub_types = json.loads(a.get("submission_types", "[]"))
+    sub_types = load_json(a.get("submission_types", "[]"))
     due = (a.get("due_at") or "No deadline")[:16].replace("T", " ")
     desc = strip_html(a.get("description", "")) or "_No description_"
     status_badge = "🔴 **NOT SUBMITTED**" if pending else "🟢 Submitted"
@@ -379,9 +383,7 @@ def _write_assignment_item(folder, prefix, a):
 
 ---
 
-```bash
-python main.py complete {a['id']}
-```
+Open this assignment from the web dashboard to review or submit it.
 """
     dest.write_text(content, encoding="utf-8")
 
@@ -401,7 +403,6 @@ def _write_quiz_item(folder, prefix, title, canvas_url, content_id, assignments_
     if dest.exists():
         return
 
-    quiz_cmd = f"python main.py quiz {assign_id}" if assign_id else "_Not available via CLI_"
     status = "🔴 **NOT SUBMITTED**" if pending else "🟢 Done / N/A"
 
     content = f"""# {title}
@@ -415,11 +416,7 @@ def _write_quiz_item(folder, prefix, title, canvas_url, content_id, assignments_
 
 ---
 
-Open in Canvas to take the quiz.
-
-```bash
-{quiz_cmd}
-```
+Open in Canvas or from the web dashboard to take the quiz.
 """
     dest.write_text(content, encoding="utf-8")
 
@@ -517,7 +514,7 @@ def _write_pending_summary(pending, downloads_dir=None):
         pts = a.get("points_possible", "?")
         name = a.get("name", "")
         aid = a["id"]
-        lines.append(f"- [ ] **{name}** — {due_str} — {pts} pts — `python main.py complete {aid}`")
+        lines.append(f"- [ ] **{name}** — {due_str} — {pts} pts — open in the web dashboard to complete")
 
     dest.write_text("\n".join(lines), encoding="utf-8")
     console.print(f"  [yellow]→ {len(pending_sorted)} pending → _PENDING.md[/yellow]")
@@ -527,7 +524,8 @@ def _write_pending_summary(pending, downloads_dir=None):
 
 def _load_pages(course_id):
     """Load pages indexed by URL slug."""
+    gid = get_current_google_id()
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM pages WHERE course_id=?", (course_id,)).fetchall()
+    rows = conn.execute("SELECT * FROM pages WHERE google_id=? AND course_id=?", (gid, course_id,)).fetchall()
     conn.close()
     return {dict(r)["url"]: dict(r) for r in rows}

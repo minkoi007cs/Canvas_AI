@@ -2,8 +2,12 @@
 venv/
 __pycache__/
 *.pyc
-# canvas.db is committed so Vercel has data — do NOT add sensitive credentials
+# Runtime databases and per-user data
+canvas.db
+data/*
+!data/.gitkeep
 session_cookies.json
+session_cookies*.json
 api_token.txt
 downloads/
 files_cache/

@@ -12,7 +12,7 @@ import json
 import re
 from pathlib import Path
 from html.parser import HTMLParser
-from storage.database import get_conn, get_assignment, get_submission
+from storage.database import get_conn, get_assignment, get_submission, get_current_google_id, load_json
 from config import OPENAI_API_KEY
 
 MAX_PDF_CHARS   = 30_000   # per PDF
@@ -85,31 +85,32 @@ def gather_module_context(assignment_id: int) -> dict:
           context_text: str,
         }
     """
+    gid = get_current_google_id()
     conn = get_conn()
 
     # ── 1. Find module_id ────────────────────────────────────────────────────
     # Assignments map directly (type=Assignment)
     row = conn.execute("""
         SELECT mi.module_id, mi.course_id, m.name as module_name
-        FROM module_items mi JOIN modules m ON m.id = mi.module_id
-        WHERE mi.content_id = ? AND mi.type = 'Assignment'
+        FROM module_items mi JOIN modules m ON m.id = mi.module_id AND m.google_id = mi.google_id
+        WHERE mi.google_id = ? AND mi.content_id = ? AND mi.type = 'Assignment'
         LIMIT 1
-    """, (assignment_id,)).fetchone()
+    """, (gid, assignment_id,)).fetchone()
 
     # Quizzes: module_items.content_id = quiz_id (not assignment id)
     if not row:
         a = conn.execute(
-            "SELECT raw FROM assignments WHERE id=?", (assignment_id,)
+            "SELECT raw FROM assignments WHERE google_id = ? AND id = ?", (gid, assignment_id,)
         ).fetchone()
         if a:
-            quiz_id = json.loads(a["raw"]).get("quiz_id")
+            quiz_id = load_json(a["raw"]).get("quiz_id")
             if quiz_id:
                 row = conn.execute("""
                     SELECT mi.module_id, mi.course_id, m.name as module_name
-                    FROM module_items mi JOIN modules m ON m.id = mi.module_id
-                    WHERE mi.content_id = ? AND mi.type = 'Quiz'
+                    FROM module_items mi JOIN modules m ON m.id = mi.module_id AND m.google_id = mi.google_id
+                    WHERE mi.google_id = ? AND mi.content_id = ? AND mi.type = 'Quiz'
                     LIMIT 1
-                """, (quiz_id,)).fetchone()
+                """, (gid, quiz_id,)).fetchone()
 
     if not row:
         conn.close()
@@ -123,14 +124,14 @@ def gather_module_context(assignment_id: int) -> dict:
     page_items = conn.execute("""
         SELECT mi.title, mi.page_url
         FROM module_items mi
-        WHERE mi.module_id = ? AND mi.type = 'Page' AND mi.page_url != ''
+        WHERE mi.google_id = ? AND mi.module_id = ? AND mi.type = 'Page' AND mi.page_url != ''
         ORDER BY mi.id
-    """, (module_id,)).fetchall()
+    """, (gid, module_id,)).fetchall()
 
     # ── 3. Build file_id → local_path lookup for this course ─────────────────
     file_rows = conn.execute(
-        "SELECT id, display_name, local_path FROM files WHERE course_id=?",
-        (course_id,)
+        "SELECT id, display_name, local_path FROM files WHERE google_id = ? AND course_id = ?",
+        (gid, course_id,)
     ).fetchall()
     file_map = {r["id"]: r for r in file_rows}
 
@@ -141,8 +142,8 @@ def gather_module_context(assignment_id: int) -> dict:
         slug = item["page_url"]
         page = conn.execute("""
             SELECT title, body FROM pages
-            WHERE url = ? AND course_id = ?
-        """, (slug, course_id)).fetchone()
+            WHERE google_id = ? AND url = ? AND course_id = ?
+        """, (gid, slug, course_id)).fetchone()
 
         if not page or not page["body"]:
             continue
@@ -239,7 +240,7 @@ def complete_assignment(assignment_id: int, progress_cb=None):
     name        = assignment.get("name", "")
     description = strip_html(assignment.get("description", ""))
     points      = assignment.get("points_possible", 0)
-    sub_types   = json.loads(assignment.get("submission_types", "[]"))
+    sub_types   = load_json(assignment.get("submission_types", "[]"))
 
     # ── Step 1: gather context ────────────────────────────────────────────────
     emit("Đang tìm tài liệu liên quan trong module...")
