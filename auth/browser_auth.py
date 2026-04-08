@@ -47,10 +47,20 @@ def login(username: str = "", password: str = "", headless: bool = False):
 
         # 6. Chờ về Canvas
         if not _wait_for_canvas(page):
+            current_url = page.url
             console.print("[red]Đăng nhập thất bại - vẫn còn ở trang ngoài Canvas[/red]")
-            console.print(f"[dim]URL hiện tại: {page.url}[/dim]")
+            console.print(f"[dim]URL hiện tại: {current_url}[/dim]")
+            # Chụp screenshot để debug
+            try:
+                from config import BASE_DIR
+                ss = BASE_DIR / "data" / "login_fail.png"
+                ss.parent.mkdir(exist_ok=True)
+                page.screenshot(path=str(ss))
+                console.print(f"[dim]Screenshot: {ss}[/dim]")
+            except Exception:
+                pass
             browser.close()
-            return None, None
+            raise RuntimeError(f"Login failed at URL: {current_url}")
 
         # 7. Lấy API token từ Canvas profile
         api_token = _extract_api_token(page)
