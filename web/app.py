@@ -65,24 +65,7 @@ def login_required(f):
         if not google_id:
             return redirect(url_for("login_page"))
         _setup_user_context(google_id)
-        # If Canvas not linked yet → redirect to setup (except setup routes)
-        from storage.users import get_user
-        try:
-            user = get_user(google_id)
-        except Exception as e:
-            print(f"[login_required] DB error for {google_id}: {e}", flush=True)
-            session.clear()
-            return redirect(url_for("login_page"))
-        if not user:
-            print(f"[login_required] user not found: {google_id}", flush=True)
-            session.clear()
-            return redirect(url_for("login_page"))
-        if user.get("is_banned"):
-            session.clear()
-            return render_template("login.html",
-                error="Your account has been suspended. Contact the administrator.")
-        if not user.get("canvas_linked"):
-            return redirect(url_for("setup_canvas_get"))
+        # Trust session; don't call DB on every request to avoid timeouts
         return f(*args, **kwargs)
     return wrapped
 
