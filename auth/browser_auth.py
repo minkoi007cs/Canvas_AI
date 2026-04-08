@@ -202,15 +202,25 @@ def _fill_microsoft_email(page, username: str):
                 if btn.is_visible(timeout=2000):
                     console.print(f"  → ✓ Found Next button ({sel})")
                     console.print(f"  → Click Next...")
+                    original_url = page.url
                     next_button = btn
                     btn.click(timeout=5000)
-                    # Wait for navigation after click
+                    # Wait for page to change after click
                     try:
-                        page.wait_for_load_state("networkidle", timeout=10000)
+                        # Wait for URL to change OR a different title/content
+                        page.wait_for_function(lambda: page.url != original_url, timeout=8000)
                     except:
-                        page.wait_for_timeout(3000)  # Fallback timeout
+                        try:
+                            # Fallback: wait for load state
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                        except:
+                            page.wait_for_timeout(3000)  # Final fallback
                     clicked = True
-                    console.print(f"  → ✓ Clicked, new URL: {page.url[:80]}")
+                    new_url = page.url
+                    if new_url != original_url:
+                        console.print(f"  → ✓ URL changed: {new_url[:80]}")
+                    else:
+                        console.print(f"  → [yellow]URL didn't change (still at email page)[/yellow]")
                     break
             except Exception as e:
                 console.print(f"  [dim]Next button {sel}: {type(e).__name__}[/dim]")
@@ -309,14 +319,23 @@ def _fill_microsoft_password(page, password: str):
                 if btn.is_visible(timeout=2000):
                     console.print(f"  → ✓ Found Sign In button ({sel})")
                     console.print(f"  → Click Sign In...")
+                    original_url = page.url
                     btn.click(timeout=5000)
                     # Wait for navigation after click
                     try:
-                        page.wait_for_load_state("networkidle", timeout=15000)
+                        # Wait for URL to change
+                        page.wait_for_function(lambda: page.url != original_url, timeout=8000)
                     except:
-                        page.wait_for_timeout(3000)  # Fallback timeout
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=15000)
+                        except:
+                            page.wait_for_timeout(3000)  # Fallback timeout
                     clicked = True
-                    console.print(f"  → ✓ Clicked, new URL: {page.url[:80]}")
+                    new_url = page.url
+                    if new_url != original_url:
+                        console.print(f"  → ✓ URL changed: {new_url[:80]}")
+                    else:
+                        console.print(f"  → [yellow]URL didn't change (still at password page)[/yellow]")
                     break
             except Exception as e:
                 console.print(f"  [dim]Sign in button {sel}: {type(e).__name__}[/dim]")
