@@ -30,8 +30,19 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
-init_users_db()
-init_db()
+try:
+    init_users_db()
+    init_db()
+except Exception as _db_err:
+    import traceback
+    print(f"[startup] DB init failed: {_db_err}", flush=True)
+    traceback.print_exc()
+
+# ── Health check ──────────────────────────────────────────────────────────────
+
+@app.route("/health")
+def health():
+    return "ok", 200
 
 # ── Per-request user context ──────────────────────────────────────────────────
 
