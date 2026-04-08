@@ -98,6 +98,8 @@ def _fill_email_form(page, username: str):
     except:
         pass
 
+    page.wait_for_timeout(1000)  # Extra time for JS to load
+
     # Try multiple selector strategies for different login page variations
     email_selectors = [
         # Canvas Shibboleth login
@@ -108,10 +110,15 @@ def _fill_email_form(page, username: str):
         "input[name='login']",
         # Microsoft / Okta
         "input[name='loginfmt']",
+        # Canvas OAuth provider selection
+        "input[name='email']",
+        "input[name='account']",
+        "input[name='user']",
+        # Generic email/username
         "input[type='email']",
         "input[name='username']",
         "#i0116",
-        # Generic fallback
+        # Generic fallback - first visible input
         "input:visible",
     ]
 
@@ -133,6 +140,52 @@ def _fill_email_form(page, username: str):
             continue
 
     if not email_filled:
+        # Save screenshot and detailed page info
+        console.print(f"  [yellow]Could not find email field![/yellow]")
+        console.print(f"  [dim]URL: {page.url}[/dim]")
+        console.print(f"  [dim]Title: {page.title()}[/dim]")
+
+        # List ALL inputs on the page
+        try:
+            all_inputs = page.locator("input").all()
+            console.print(f"  [dim]Found {len(all_inputs)} input elements:[/dim]")
+            for i, inp in enumerate(all_inputs):
+                try:
+                    inp_type = inp.get_attribute("type") or "text"
+                    inp_name = inp.get_attribute("name") or ""
+                    inp_id = inp.get_attribute("id") or ""
+                    inp_placeholder = inp.get_attribute("placeholder") or ""
+                    visible = inp.is_visible(timeout=1000)
+                    console.print(f"    {i}: type={inp_type}, name='{inp_name}', id='{inp_id}', placeholder='{inp_placeholder}', visible={visible}")
+                except Exception as e:
+                    console.print(f"    {i}: [error reading attributes]")
+        except Exception as e:
+            console.print(f"  [dim]Error listing inputs: {e}[/dim]")
+
+        # List all buttons
+        try:
+            all_buttons = page.locator("button").all()
+            console.print(f"  [dim]Found {len(all_buttons)} button elements:[/dim]")
+            for i, btn in enumerate(all_buttons[:5]):  # Limit to first 5
+                try:
+                    btn_text = btn.text_content() or ""
+                    btn_id = btn.get_attribute("id") or ""
+                    btn_type = btn.get_attribute("type") or "button"
+                    console.print(f"    {i}: text='{btn_text[:30]}', id='{btn_id}', type={btn_type}")
+                except:
+                    pass
+        except:
+            pass
+
+        # Save screenshot
+        try:
+            ss = BASE_DIR / "data" / "login_page_debug.png"
+            ss.parent.mkdir(exist_ok=True)
+            page.screenshot(path=str(ss))
+            console.print(f"  [dim]Screenshot saved: {ss}[/dim]")
+        except:
+            pass
+
         raise RuntimeError(f"Could not find email field. URL: {page.url}")
 
     # Submit form - try multiple methods
