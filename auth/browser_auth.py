@@ -229,7 +229,7 @@ def _fill_microsoft_email(page, username: str):
         # Fallback: press Enter key if button not found
         if not clicked:
             try:
-                console.print("  → Fallback: Press Enter to submit")
+                console.print("  → Fallback #1: Press Enter to submit")
                 # Focus on the email field first, then press Enter
                 if email_field:
                     email_field.focus()
@@ -238,7 +238,28 @@ def _fill_microsoft_email(page, username: str):
                 console.print(f"  → ✓ Enter pressed, new URL: {page.url[:80]}")
                 clicked = True
             except Exception as e:
-                console.print(f"  [dim]Enter key failed: {type(e).__name__}: {e}[/dim]")
+                console.print(f"  [dim]Enter key failed: {type(e).__name__}[/dim]")
+
+        # Fallback: submit form via JavaScript if all else fails
+        if not clicked:
+            try:
+                console.print("  → Fallback #2: Submit form via JavaScript")
+                page.evaluate("""
+                    () => {
+                        const form = document.querySelector('form');
+                        if (form) {
+                            form.submit();
+                        } else {
+                            // Try to find and click any submit button
+                            document.querySelector('[type="submit"]')?.click();
+                        }
+                    }
+                """)
+                page.wait_for_timeout(3000)
+                console.print(f"  → ✓ JS submit done, new URL: {page.url[:80]}")
+                clicked = True
+            except Exception as e:
+                console.print(f"  [dim]JS submit failed: {type(e).__name__}[/dim]")
 
         if not clicked:
             console.print("  [red]✗ Email form submission failed![/red]")
@@ -344,7 +365,7 @@ def _fill_microsoft_password(page, password: str):
         # Fallback: press Enter key if button not found
         if not clicked:
             try:
-                console.print("  → Fallback: Press Enter to submit")
+                console.print("  → Fallback #1: Press Enter to submit")
                 if pwd_field:
                     pwd_field.focus()
                 page.press("body", "Enter")
@@ -353,6 +374,27 @@ def _fill_microsoft_password(page, password: str):
                 clicked = True
             except Exception as e:
                 console.print(f"  [dim]Enter key failed: {type(e).__name__}[/dim]")
+
+        # Fallback: submit form via JavaScript if all else fails
+        if not clicked:
+            try:
+                console.print("  → Fallback #2: Submit form via JavaScript")
+                page.evaluate("""
+                    () => {
+                        const form = document.querySelector('form');
+                        if (form) {
+                            form.submit();
+                        } else {
+                            // Try to find and click any submit button
+                            document.querySelector('[type="submit"]')?.click();
+                        }
+                    }
+                """)
+                page.wait_for_timeout(3000)
+                console.print(f"  → ✓ JS submit done, new URL: {page.url[:80]}")
+                clicked = True
+            except Exception as e:
+                console.print(f"  [dim]JS submit failed: {type(e).__name__}[/dim]")
 
         if not clicked:
             console.print("  [red]✗ Password form submission failed![/red]")
