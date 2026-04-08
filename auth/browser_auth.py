@@ -271,7 +271,7 @@ def _handle_mfa(page):
             console.print("[yellow]Kiểm tra điện thoại → Approve notification trong Microsoft Authenticator[/yellow]")
             console.print("[dim]App đang chờ (tối đa 60 giây)...[/dim]")
             try:
-                page.wait_for_url(f"*{CANVAS_BASE_URL}*", timeout=60000)
+                page.wait_for_url(f"**{CANVAS_BASE_URL}**", timeout=60000)
                 console.print("[green]✓ MFA approved[/green]")
             except PlaywrightTimeout:
                 console.print("[yellow]Timeout MFA, tiếp tục...[/yellow]")
@@ -308,7 +308,7 @@ def _wait_for_canvas(page) -> bool:
     """Chờ về Canvas. Trả về True nếu thành công."""
     console.print("  → Chờ về Canvas dashboard...")
     try:
-        page.wait_for_url(f"**kent.instructure.com**", timeout=30000)
+        page.wait_for_url("**/dashboard", timeout=30000)
         page.wait_for_load_state("networkidle", timeout=15000)
         console.print(f"  [green]✓ Canvas URL: {page.url}[/green]")
         return True
@@ -321,42 +321,111 @@ def _extract_api_token(page) -> str:
     console.print("  → Lấy API token từ Canvas profile...")
     try:
         page.goto(f"{CANVAS_BASE_URL}/profile/settings", wait_until="networkidle", timeout=15000)
+        page.wait_for_timeout(2000)  # Extra wait for JS to load
 
-        # Click "New Access Token" button
-        new_token_btn = page.locator(
-            "button:has-text('New Access Token'), a:has-text('New Access Token')"
-        ).first
+        # Try multiple selectors for "New Access Token" button
+        new_token_selectors = [
+            "button:has-text('New Access Token')",
+            "a:has-text('New Access Token')",
+            "button:has-text('+ New Access Token')",
+            "[href*='access_tokens']:has-text('New')",
+        ]
+
+        new_token_btn = None
+        for sel in new_token_selectors:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible(timeout=2000):
+                    new_token_btn = el
+                    break
+            except:
+                continue
+
+        if not new_token_btn:
+            console.print("  [yellow]Không tìm thấy nút 'New Access Token', dùng cookies[/yellow]")
+            return ""
+
         new_token_btn.click(timeout=5000)
+        page.wait_for_timeout(1500)
 
         # Điền purpose
-        purpose_field = page.locator(
-            "#token_purpose, input[name='purpose'], input[placeholder*='Purpose']"
-        ).first
-        purpose_field.wait_for(state="visible", timeout=5000)
-        purpose_field.fill("canvas-app")
+        purpose_selectors = [
+            "#token_purpose",
+            "input[name='purpose']",
+            "input[placeholder*='Purpose']",
+            "input[placeholder*='purpose']",
+        ]
+
+        purpose_field = None
+        for sel in purpose_selectors:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible(timeout=2000):
+                    purpose_field = el
+                    break
+            except:
+                continue
+
+        if purpose_field:
+            purpose_field.fill("canvas-app")
+        else:
+            console.print("  [yellow]Không tìm thấy ô 'Purpose'[/yellow]")
 
         # Click Generate Token
-        page.locator(
-            "button:has-text('Generate Token'), input[value='Generate Token']"
-        ).first.click()
+        gen_selectors = [
+            "button:has-text('Generate Token')",
+            "button:has-text('Generate')",
+            "input[value='Generate Token']",
+        ]
 
-        # Lấy token từ modal
-        token_el = page.locator(
-            "#token-string, .token, input.token, [data-testid='token-value'], #new_token_value"
-        ).first
-        token_el.wait_for(state="visible", timeout=5000)
-        token = token_el.input_value() or token_el.text_content()
-        token = token.strip()
+        gen_btn = None
+        for sel in gen_selectors:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible(timeout=2000):
+                    gen_btn = el
+                    break
+            except:
+                continue
 
-        if token:
-            console.print(f"  [green]✓ API token lấy thành công[/green]")
+        if gen_btn:
+            gen_btn.click()
+            page.wait_for_timeout(2000)
+        else:
+            console.print("  [yellow]Không tìm thấy nút 'Generate'[/yellow]")
+
+        # Lấy token từ modal/display
+        token_selectors = [
+            "#token-string",
+            "#new_token_value",
+            "[data-testid='token-value']",
+            ".token-value",
+            "input.token",
+            ".token",
+            "code",  # Token often shown in <code> tag
+        ]
+
+        token = ""
+        for sel in token_selectors:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible(timeout=2000):
+                    val = el.input_value() if "input" in sel else el.text_content()
+                    if val:
+                        token = val.strip()
+                        break
+            except:
+                continue
+
+        if token and len(token) > 10:  # Real token is usually long
+            console.print(f"  [green]✓ API token lấy thành công (dài {len(token)} ký tự)[/green]")
             return token
         else:
-            console.print("  [yellow]Không đọc được token, sẽ dùng cookies[/yellow]")
+            console.print(f"  [yellow]Token không hợp lệ hoặc trống, dùng cookies[/yellow]")
             return ""
 
     except Exception as e:
-        console.print(f"  [yellow]Không lấy được API token ({e}), dùng cookies thay thế[/yellow]")
+        console.print(f"  [yellow]Không lấy được API token ({type(e).__name__}: {e}), dùng cookies thay thế[/yellow]")
         return ""
 
 
