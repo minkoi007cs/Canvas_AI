@@ -479,6 +479,7 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
     context_text = ctx.get("context_text", "")
     sources      = ctx.get("sources", [])
     module_name  = ctx.get("module_name", "")
+    course_name  = ctx.get("course_name", "Unknown Course")
     if sources:
         emit(f"Context: {len(context_text):,} ký tự từ {len(sources)} tài liệu")
     else:
@@ -595,25 +596,14 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
     ai = OpenAI(api_key=OPENAI_API_KEY)
 
     system_prompt = (
-        "You are an excellent student in 'The Greek Achievement' course at Kent State University (CLAS-21404). "
+        f"You are an excellent student in {course_name} at Kent State University. "
         "Answer quiz questions precisely and accurately. "
         "For multiple choice: state the letter and full text of the correct option. "
         "For matching: list each item → its correct match on a new line (format: item → answer). "
         "For short answer: give the exact answer. "
         "For image-based matching: identify each image visually and match to the best option. "
-        "Base your answers on the provided course materials.\n\n"
-        "VISUAL IDENTIFICATION GUIDE for Greek women roles:\n"
-        "- maenad: wild/frenzied woman, Dionysian scene, thyrsus, animal skin, ecstatic pose\n"
-        "- Spartan runner: athletic female in short tunic, running/athletic pose\n"
-        "- mourner: funerary scene, woman wailing/gesturing grief, near stele/grave\n"
-        "- woman spinning: holding distaff + drop-spindle, or seated at loom with weights\n"
-        "- bride with the groom: wedding scene, veiled woman, chariot procession, torch\n"
-        "- slaves working: multiple figures doing domestic labor (cooking, washing, kneading)\n"
-        "- hetaera: symposium scene, reclining men on couches, woman playing aulos/lyre\n"
-        "- lower class vendor: market/street scene, woman selling food/goods to a customer\n"
-        "- Medea: mythological scene with serpent chariot or infanticide scene\n"
-        "- young girl: small child figure, often on grave stele with toys or pet bird\n"
-        + (f"\n\n--- COURSE MATERIALS (use as primary reference) ---\n{context_text[:60000]}" if context_text else "")
+        "Base your answers DIRECTLY on the provided course materials - cite specific details and examples.\n"
+        + (f"\n--- COURSE MATERIALS (primary reference) ---\n{context_text[:60000]}" if context_text else "")
     )
 
     solved = []
