@@ -593,6 +593,7 @@ def api_complete(assignment_id):
             q.put(("progress", msg))
 
         def run_ai():
+            _setup_user_context(session["google_id"])
             from agent.assignment_agent import complete_assignment
             try:
                 answer = complete_assignment(assignment_id, progress_cb=cb)

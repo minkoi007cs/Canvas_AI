@@ -81,6 +81,7 @@ def gather_module_context(assignment_id: int) -> dict:
         {
           module_name: str,
           course_id: int,
+          course_name: str,
           sources: [{"title": str, "text": str, "type": "page"|"pdf"}, ...],
           context_text: str,
         }
@@ -114,11 +115,17 @@ def gather_module_context(assignment_id: int) -> dict:
 
     if not row:
         conn.close()
-        return {"module_name": None, "course_id": None, "sources": [], "context_text": ""}
+        return {"module_name": None, "course_id": None, "course_name": None, "sources": [], "context_text": ""}
 
     module_id   = row["module_id"]
     course_id   = row["course_id"]
     module_name = row["module_name"]
+
+    # Get course name
+    course_row = conn.execute(
+        "SELECT name FROM courses WHERE google_id = ? AND id = ?", (gid, course_id,)
+    ).fetchone()
+    course_name = course_row["name"] if course_row else "Unknown Course"
 
     # ── 2. Get all Page items in this module ─────────────────────────────────
     page_items = conn.execute("""
@@ -211,6 +218,7 @@ def gather_module_context(assignment_id: int) -> dict:
     return {
         "module_name": module_name,
         "course_id": course_id,
+        "course_name": course_name,
         "sources": sources,
         "context_text": "\n".join(parts),
     }
@@ -246,6 +254,7 @@ def complete_assignment(assignment_id: int, progress_cb=None):
     emit("Đang tìm tài liệu liên quan trong module...")
     ctx = gather_module_context(assignment_id)
     module_name  = ctx.get("module_name") or ""
+    course_name  = ctx.get("course_name") or "Unknown Course"
     context_text = ctx.get("context_text") or ""
     sources      = ctx.get("sources") or []
 
@@ -265,7 +274,7 @@ def complete_assignment(assignment_id: int, progress_cb=None):
     emit("Đang phân tích đề bài...")
 
     system_prompt = (
-        "You are an excellent student at Kent State University taking a course on The Greek Achievement (CLAS-21404). "
+        f"You are an excellent student at Kent State University taking {course_name}. "
         "You write thorough, well-organized, academically strong responses. "
         "When course materials are provided below, base your answers DIRECTLY on them — "
         "cite specific details, examples, and quotes from those materials. "
