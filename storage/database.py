@@ -95,9 +95,36 @@ def get_conn() -> PGConn:
 # ── Schema ────────────────────────────────────────────────────────────────────
 
 def init_db():
-    """Tạo các bảng Canvas nếu chưa có."""
+    """Tạo các bảng Canvas nếu chưa có. Bao gồm cả bảng mới cho extension architecture."""
     conn = get_conn()
     statements = [
+        # ── NEW TABLES FOR EXTENSION ARCHITECTURE ──────────────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS ai_completions (
+            id SERIAL PRIMARY KEY,
+            google_id TEXT NOT NULL,
+            course_id BIGINT,
+            assignment_id BIGINT,
+            assignment_title VARCHAR(500) NOT NULL,
+            assignment_description TEXT,
+            context_summary TEXT,
+            ai_draft TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            FOREIGN KEY (google_id) REFERENCES users(google_id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS extension_auth_tokens (
+            id SERIAL PRIMARY KEY,
+            google_id TEXT NOT NULL UNIQUE,
+            auth_token VARCHAR(64) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            last_used_at TIMESTAMP,
+            FOREIGN KEY (google_id) REFERENCES users(google_id) ON DELETE CASCADE
+        )
+        """,
+        # ── OLD CANVAS TABLES (DEPRECATED - kept for reference) ────────────────
         """
         CREATE TABLE IF NOT EXISTS courses (
             google_id TEXT NOT NULL,
@@ -218,6 +245,9 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    # Create indexes for extension tables
+    _add_extension_indexes()
 
 
 # ── Upserts ───────────────────────────────────────────────────────────────────
@@ -491,3 +521,130 @@ def get_files(course_id: int) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── NEW FUNCTIONS FOR EXTENSION ARCHITECTURE ──────────────────────────────────
+
+def save_ai_completion(assignment_title: str, assignment_description: str,
+                      context_summary: str, ai_draft: str,
+                      course_id: int = None, assignment_id: int = None) -> int:
+    """
+    Save AI-generated draft for an assignment.
+    Returns the draft ID.
+    """
+    gid = _gid()
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO ai_completions
+        (google_id, course_id, assignment_id, assignment_title,
+         assignment_description, context_summary, ai_draft,
+         created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+        RETURNING id
+    """, (gid, course_id, assignment_id, assignment_title,
+          assignment_description, context_summary, ai_draft))
+
+    row = cur.fetchone()
+    draft_id = row['id'] if row else None
+    conn.commit()
+    conn.close()
+    return draft_id
+
+
+def get_user_completions(limit: int = 20, offset: int = 0) -> tuple:
+    """
+    Get list of user's saved AI completions (paginated).
+    Returns (list of completions, total count).
+    """
+    gid = _gid()
+    conn = get_conn()
+
+    # Get total count
+    total_row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM ai_completions WHERE google_id = %s",
+        (gid,)
+    ).fetchone()
+    total = total_row['cnt'] if total_row else 0
+
+    # Get paginated results
+    rows = conn.execute("""
+        SELECT id, assignment_title, course_id, assignment_id,
+               created_at, SUBSTRING(ai_draft FROM 1 FOR 100) as preview
+        FROM ai_completions
+        WHERE google_id = %s
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    """, (gid, limit, offset)).fetchall()
+
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
+def get_completion(completion_id: int) -> dict:
+    """Get full details of a specific completion."""
+    gid = _gid()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM ai_completions WHERE id = %s AND google_id = %s",
+        (completion_id, gid)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_completion(completion_id: int) -> bool:
+    """Delete a completion (only if user owns it)."""
+    gid = _gid()
+    conn = get_conn()
+
+    # Verify ownership before deleting
+    owned = conn.execute(
+        "SELECT id FROM ai_completions WHERE id = %s AND google_id = %s",
+        (completion_id, gid)
+    ).fetchone()
+
+    if owned:
+        conn.execute("DELETE FROM ai_completions WHERE id = %s", (completion_id,))
+        conn.commit()
+        conn.close()
+        return True
+
+    conn.close()
+    return False
+
+
+def cleanup_old_completions(days: int = 30) -> int:
+    """
+    Delete completions older than N days.
+    Used by cleanup job. Returns number of deleted rows.
+    """
+    gid = _gid()
+    conn = get_conn()
+
+    # Delete completions older than N days
+    cur = conn.execute("""
+        DELETE FROM ai_completions
+        WHERE google_id = %s
+        AND created_at < NOW() - INTERVAL '%s days'
+    """, (gid, days))
+
+    deleted = cur.rowcount if cur else 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ── Add indexes for new tables ──────────────────────────────────────────────────
+
+def _add_extension_indexes():
+    """Create indexes for extension tables (called by init_db)."""
+    conn = get_conn()
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_completions_user ON ai_completions(google_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_completions_created ON ai_completions(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ext_auth_token ON extension_auth_tokens(auth_token)")
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
