@@ -1,5 +1,13 @@
 """
-Canvas login via Playwright - handles Microsoft account picker
+⚠️ DEPRECATED: This module is no longer used in the main application flow.
+
+The Canvas login flow has been refactored to use Canvas API tokens provided by users.
+This file contains old Playwright-based authentication code and is kept only for reference.
+
+DO NOT USE in new code. New features should use Canvas API token authentication via
+storage/users.py:get_canvas_api_token() or the Canvas API client instead.
+
+For browser extension implementation, design a new auth flow — do NOT reuse this code.
 """
 import json
 import os

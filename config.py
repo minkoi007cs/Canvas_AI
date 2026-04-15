@@ -15,7 +15,8 @@ CANVAS_API_URL = f"{CANVAS_BASE_URL}/api/v1"
 
 CANVAS_USERNAME = os.getenv("CANVAS_USERNAME", "")
 CANVAS_PASSWORD = os.getenv("CANVAS_PASSWORD", "")
-OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")  # For Claude assignment help
+OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")  # For GPT-4o quiz feature
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
