@@ -264,6 +264,17 @@ def update_user_last_sync(google_id: str):
     conn.close()
 
 
+def update_user_activity(google_id: str):
+    """Update last_accessed_at to now (track any user activity)."""
+    conn = get_users_conn()
+    _exec(conn,
+        "UPDATE users SET last_accessed_at=to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE google_id=?",
+        (google_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── Per-user file storage paths ───────────────────────────────────────────────
 
 def user_data_dir(google_id: str) -> Path:

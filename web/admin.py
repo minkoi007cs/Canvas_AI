@@ -141,7 +141,7 @@ def delete_user_route(google_id):
 @admin_bp.route("/users/<google_id>/detail")
 @admin_login_required
 def user_detail(google_id):
-    from storage.users import get_user, load_user_session
+    from storage.users import get_user
     user = get_user(google_id)
     if not user:
         abort(404)
