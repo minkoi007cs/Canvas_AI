@@ -452,8 +452,19 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
                    api_token: str = "", cookies: list = None,
                    progress_cb=None) -> str:
     """
-    Fetch quiz questions via Canvas Quiz API, answer with GPT-4o.
-    No Playwright required — works with API token only.
+    DEPRECATED: Quiz solving with Playwright requires session cookies from browser login.
+
+    Current limitation:
+    - The app now uses Canvas API tokens only (no server-side password storage)
+    - Quiz feature requires browser automation + session cookies to render and solve quizzes
+    - Session cookies are no longer available in token-only architecture
+
+    Future workaround would require:
+    - Fetching quiz questions via Canvas Quiz API (/api/v1/courses/.../questions)
+    - Handling image downloads and markdown rendering separately
+    - Submitting answers via Canvas Quiz API
+
+    For now, quiz solving is not supported in this architecture.
     """
     def emit(msg):
         if progress_cb:
@@ -461,8 +472,15 @@ def solve_quiz_api(course_id: int, quiz_id: int, assignment_id: int,
 
     if not OPENAI_API_KEY:
         return "Cần OPENAI_API_KEY trong .env"
-    if not cookies:
-        return "Chưa có session. Vào dashboard → Sync Canvas trước."
+
+    # Quiz feature is not supported in token-only architecture
+    return (
+        "⚠️ Quiz feature is temporarily unavailable.\n\n"
+        "The quiz solver requires browser session cookies which are no longer "
+        "available in the current Canvas API token-based authentication.\n\n"
+        "Workaround: You can still take quizzes directly on Canvas website.\n\n"
+        "Future: Quiz feature will be re-implemented using Canvas Quiz API."
+    )
 
     session_cookies_dict = {
         c["name"]: c["value"] for c in cookies

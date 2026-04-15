@@ -34,13 +34,14 @@ def cleanup_inactive_users() -> dict:
     cutoff = get_cutoff_date()
 
     try:
-        # Get all users who haven't synced recently
+        # Get all users who haven't been active recently
+        # Activity is tracked via last_accessed_at (login, sync, API usage)
         conn = get_users_conn()
         cur = conn.cursor()
         cur.execute("""
             SELECT google_id FROM users
             WHERE canvas_linked = 1 AND (
-                last_sync_at IS NULL OR last_sync_at < %s
+                last_accessed_at IS NULL OR last_accessed_at < %s
             )
         """, (cutoff,))
         inactive_users = [row[0] for row in cur.fetchall()]

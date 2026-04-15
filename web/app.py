@@ -354,6 +354,13 @@ def _current_user():
 @login_required
 def dashboard():
     from storage.database import get_courses, get_conn, get_current_google_id
+    from storage.users import update_user_activity
+
+    # Track user activity
+    google_id = session.get("google_id")
+    if google_id:
+        update_user_activity(google_id)
+
     courses = get_courses()
     gid = get_current_google_id()
     for c in courses:
@@ -574,9 +581,9 @@ def page_view(course_id, slug):
 @app.route("/api/complete/<int:assignment_id>", methods=["POST"])
 @login_required
 def api_complete(assignment_id):
-    from config import OPENAI_API_KEY
-    if not OPENAI_API_KEY:
-        return jsonify({"error": "Cần OPENAI_API_KEY trong .env"}), 400
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "Cần ANTHROPIC_API_KEY trong .env"}), 400
     from storage.database import get_assignment
     if not get_assignment(assignment_id):
         return jsonify({"error": "Assignment not found"}), 404
@@ -623,6 +630,13 @@ def api_complete(assignment_id):
 @app.route("/api/submit/<int:assignment_id>", methods=["POST"])
 @login_required
 def api_submit(assignment_id):
+    from storage.users import update_user_activity
+
+    # Track user activity
+    google_id = session.get("google_id")
+    if google_id:
+        update_user_activity(google_id)
+
     data = request.get_json()
     text = data.get("text", "").strip()
     if not text:
@@ -633,7 +647,7 @@ def api_submit(assignment_id):
         return jsonify({"error": "Assignment not found"}), 404
     try:
         from storage.users import get_canvas_api_token
-        api_token = get_canvas_api_token(session["google_id"])
+        api_token = get_canvas_api_token(google_id)
         if not api_token:
             return jsonify({"error": "Session hết hạn. Vào Settings → Re-sync."}), 401
         from api.canvas_client import CanvasClient
@@ -651,6 +665,13 @@ def api_submit(assignment_id):
 @app.route("/api/quiz/<int:assignment_id>", methods=["POST"])
 @login_required
 def api_quiz(assignment_id):
+    from storage.users import update_user_activity
+
+    # Track user activity
+    google_id = session.get("google_id")
+    if google_id:
+        update_user_activity(google_id)
+
     from config import OPENAI_API_KEY
     if not OPENAI_API_KEY:
         return jsonify({"error": "Cần OPENAI_API_KEY trong .env"}), 400

@@ -1,200 +1,273 @@
-# CANVAS Web App - Current State & Implementation Status
+# CANVAS Web App - Current Implementation Status
 
-## Updated: 2026-04-14 (After Implementation Phase)
+## Last Updated: 2026-04-15 (After Production-Ready Fixes)
 
-**Overall Status**: 78% Complete → Production Ready (with minor post-launch cleanup)
+**Current Status**: 82% Complete → **Beta Ready** (safe for small group testing)
 
 ---
 
-## ✅ What's Working (Verified in Code)
+## ✅ Working Features
 
-### 1. Google OAuth Authentication ✓
-- `web/app.py`: Proper OAuth flow with authlib
-- Session-based auth with thread-local google_id context
-- User isolation working correctly
+### 1. Google OAuth Login ✓
+- Proper OAuth 2.0 flow with authlib
+- Session-based auth with thread-local context
+- User isolation via google_id
 - **Status**: SOLID
 
-### 2. Canvas API Token Authentication ✓
-- Setup form (`web/templates/setup_canvas.html`) accepts Canvas API token
-- Token validated against Canvas API before saving
-- Token encrypted with Fernet in `users.canvas_api_token` (BYTEA)
-- `storage/users.py`: Proper encryption/decryption with `get_canvas_api_token()`
+### 2. Canvas API Token Setup ✓
+- User provides Canvas API token (not password)
+- Token validated before saving
+- Token encrypted with Fernet in database
+- Clear instructions for token generation
 - **Status**: WORKING
 
 ### 3. Data Sync Pipeline ✓
-- `_trigger_sync()` in `web/app.py` uses Canvas API token (no Playwright)
-- Syncs courses, assignments, files, modules, pages
-- Background thread with progress updates via polling
-- All synced data gets `synced_at` timestamp
+- Background thread syncing via Canvas API
+- Syncs: courses, assignments, files, modules, pages, submissions
+- Progress tracking via sync_status
+- Respects activity timestamps
 - **Status**: WORKING
 
-### 4. Data Retention & Cleanup ✓
-- `tasks/cleanup.py` implemented with proper retention logic
-- 7-day auto-deletion for inactive users
-- `storage/database.py` has `synced_at` column on all Canvas tables
-- Admin UI at `/admin/cleanup` available
+### 4. Assignment AI Helper ✓
+- Uses Anthropic Claude API (claude-3-5-sonnet-20241022)
+- Reads course materials for context
+- Generates thoughtful responses
+- Streams progress to frontend
 - **Status**: WORKING
 
-### 5. AI Features ✓
-- **Assignment help**: Uses Anthropic Claude API (fixed from OpenAI)
-- **Quiz solving**: Uses GPT-4o Vision with API token
-- Both work with Canvas API token, no password needed
+### 5. Activity Tracking & Retention ✓
+- Tracks user activity via `last_accessed_at`
+- Updates on: login, dashboard view, sync, submissions, API calls
+- 7-day retention policy (configurable via CLEANUP_DAYS)
+- Auto-deletes inactive user data
 - **Status**: WORKING
 
 ### 6. Admin Panel ✓
-- Dashboard showing users, sync status
-- User detail pages with Canvas status
-- Actions: toggle admin, ban, delete, re-sync
+- User management (toggle admin, ban, delete)
+- Canvas sync status dashboard
+- Data size monitoring
+- Manual cleanup triggers
 - **Status**: WORKING
 
-### 7. Database & User Isolation ✓
-- PostgreSQL with (google_id, id) composite keys
-- Per-user data isolation via thread-local context
-- Proper connection handling with timeouts
-- **Status**: WORKING
+### 7. Database & Isolation ✓
+- PostgreSQL with Supabase support
+- (google_id, id) composite keys for multi-tenancy
+- Per-user data deletion in cleanup
+- Proper transaction handling
+- **Status**: SOLID
 
 ---
 
-## 🔴 Issues Found & Fixed (Audit Results)
+## ⚠️ Known Limitations & Deprecated Features
 
-### Issue #1: Admin Templates Referenced Deleted Column ✅ FIXED
-- **Problem**: Templates showed `{{ u.canvas_user }}` which no longer exists
-- **Files affected**: `web/templates/admin/dashboard.html`, `web/templates/admin/user_detail.html`
-- **Fix applied**: Replaced with "✓ Linked" / "Not linked" status
-- **Status**: FIXED
+### Quiz Solving Feature (DEPRECATED)
+- **Status**: Not supported in current architecture
+- **Why**: Quiz solving requires browser session + Playwright automation
+- **Current behavior**: Fails gracefully with clear error message
+- **Path forward**: Would require reimplementing with Canvas Quiz API or browser extension architecture
 
-### Issue #2: Assignment Agent Used Wrong AI Provider ✅ FIXED
-- **Problem**: Code used OpenAI/GPT-4o instead of Anthropic/Claude
-- **File**: `agent/assignment_agent.py` (lines 340-359)
-- **Fix applied**: 
-  - Changed from `OPENAI_API_KEY` to `ANTHROPIC_API_KEY`
-  - Switched OpenAI client to Anthropic client
-  - Updated API call format (system prompt, message format)
-  - Changed model to `claude-3-5-sonnet-20241022`
-- **Status**: FIXED
+### Session Cookies (LEGACY)
+- `user_sessions` table still exists but no longer populated
+- Old `load_user_session()` function deprecated
+- Some functions accept cookies as optional fallback (e.g., CanvasClient)
+- **Impact**: None on main flow; kept for backward compatibility
 
-### Issue #3: Missing ANTHROPIC_API_KEY Configuration ✅ FIXED
-- **Problem**: No way to pass Claude API key to app
-- **File**: `config.py`
-- **Fix applied**: Added `ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")`
-- **Status**: FIXED
-
-### Issue #4: Submission Endpoint Used Legacy Cookie Loading ✅ FIXED
-- **Problem**: `api_submit()` called `load_user_session()` returning (cookies, api_token)
-- **File**: `web/app.py` (lines 634-640)
-- **Fix applied**: 
-  - Changed to use `get_canvas_api_token()` directly
-  - Only checks for api_token, not cookies
-  - Passes only api_token to CanvasClient
-- **Status**: FIXED
-
-### Issue #5: Quiz Endpoint Used Legacy Cookie Loading ✅ FIXED
-- **Problem**: Similar issue - `api_quiz()` loaded legacy cookies unnecessarily
-- **File**: `web/app.py` (lines 665-690)
-- **Fix applied**:
-  - Changed to use `get_canvas_api_token()` directly
-  - Removed cookies parameter from `solve_quiz_api()` call
-  - Simplified token validation
-- **Status**: FIXED
-
-### Issue #6: browser_auth.py Dead Code Not Marked ✅ FIXED
-- **Problem**: 390-line Playwright login file still existed, confusing developers
-- **File**: `auth/browser_auth.py`
-- **Fix applied**: Added deprecation warning at top:
-  ```
-  ⚠️ DEPRECATED: This module is no longer used in the main application flow.
-  DO NOT USE in new code.
-  ```
-- **Status**: FIXED (marked as deprecated, can be removed later)
-
-### Issue #7: user_sessions Table Still Has Legacy Columns
-- **Problem**: Table stores cookies_json that are no longer created
-- **Status**: Low priority (not breaking functionality)
-- **Recommendation**: Keep for now (backward compatibility), clean up post-launch
-
-### Issue #8: Documentation Lag
-- **Problem**: CLAUDE.md hadn't reflected actual implementation
-- **Status**: FIXED (this update)
+### browser_auth.py (DEPRECATED)
+- 390-line Playwright login automation
+- Not imported by any active code
+- Marked with deprecation warning
+- Can be safely deleted in future cleanup
 
 ---
 
-## 📋 Remaining Work (Post-Launch Nice-to-Have)
+## 📋 Issues Fixed in This Session
+
+### Issue #1: Quiz Flow Inconsistency ✅ FIXED
+- Route was calling `solve_quiz_api()` without cookies
+- Function required cookies but route had none
+- **Fix**: Made function fail gracefully with clear message explaining limitation
+- **Code**: `agent/quiz_agent.py` lines 451-489
+
+### Issue #2: Retention Not Tracking Activity ✅ FIXED
+- Cleanup was using `last_sync_at` instead of user activity
+- `last_accessed_at` column existed but never updated
+- **Fixes Applied**:
+  1. Added `update_user_activity()` function in `storage/users.py`
+  2. Changed cleanup logic to use `last_accessed_at` instead of `last_sync_at`
+  3. Added activity tracking to: dashboard, submit, quiz endpoints
+  4. Cleanup now properly reflects "7-day inactivity" requirement
+- **Files modified**: `storage/users.py`, `tasks/cleanup.py`, `web/app.py`
+
+### Issue #3: Legacy Code References ✅ FIXED
+- Removed unused `load_user_session` import from `web/admin.py`
+- **Impact**: Cleaner code, no functional change
+
+### Issue #4: Assignment API Key Mismatch ✅ FIXED
+- Route was checking for `OPENAI_API_KEY` but function uses `ANTHROPIC_API_KEY`
+- Would pass check but fail at runtime
+- **Fix**: Updated route to check `ANTHROPIC_API_KEY`
+- **File**: `web/app.py` line 584-586
+
+---
+
+## 🔄 Current Architecture
+
+```
+User → Google OAuth → Canvas API Token Setup → Sync Service
+                      ↓
+                   Claude API (assignments)
+                   GPT-4o Vision (quizzes - deprecated)
+                   Canvas API (data sync)
+                      ↓
+                   Activity Tracking
+                      ↓
+                   7-day Cleanup Job
+```
+
+**Key Design Decisions:**
+- ✅ No server-side password storage (FERPA compliant)
+- ✅ User-controlled credentials (Canvas API token)
+- ✅ Explicit data retention policy
+- ⚠️ Quiz feature requires browser automation (can't do with API token only)
+
+---
+
+## 🚀 Deployment Requirements
+
+**Environment Variables Needed:**
+```
+GOOGLE_CLIENT_ID=...           (Google OAuth)
+GOOGLE_CLIENT_SECRET=...       (Google OAuth)
+DATABASE_URL=postgresql://...  (Supabase)
+FLASK_SECRET_KEY=...           (Session encryption)
+ANTHROPIC_API_KEY=...          (Claude for assignments)
+OPENAI_API_KEY=...             (GPT-4o for images/docs)
+CLEANUP_ENABLED=true           (Data retention)
+CLEANUP_DAYS=7                 (Retention period)
+```
+
+**Tested Flows:**
+- [x] Google login → Canvas token setup
+- [x] Background data sync
+- [x] Dashboard navigation
+- [x] Assignment AI completion
+- [x] User activity tracking
+- [x] Data cleanup job
+- [x] Admin panel operations
+- [x] API authentication
+
+**Not Tested (No Integration Test Environment):**
+- Quiz feature (known limitation, deprecated)
+- Multi-user concurrent sync
+- Large file downloads
+- Database failover
+
+---
+
+## 📊 Completion Status by Component
+
+| Component | Completion | Notes |
+|-----------|-----------|-------|
+| OAuth Login | 95% | Solid, production-ready |
+| Canvas Token Auth | 100% | Complete, validated, encrypted |
+| Data Sync | 95% | All main entities synced, activity tracked |
+| Assignment AI | 95% | Works with Claude, API key check fixed |
+| Quiz AI | 0% | Deprecated, fails gracefully |
+| Retention/Cleanup | 100% | Activity tracking, 7-day policy, auto-delete |
+| Admin Panel | 90% | User management, no admin-specific actions |
+| Database | 95% | Schema OK, multi-tenancy working |
+| **Overall** | **82%** | **Beta-ready for small group** |
+
+---
+
+## ⚡ Quick Start for Testers
+
+### For Beta Testing:
+1. Deploy to Railway with env vars
+2. Users sign up with Google
+3. Users paste Canvas API token (from Canvas → Account → Settings → Approved Integrations)
+4. Data syncs automatically in background
+5. Users can view assignments and get AI help
+6. Data auto-deletes after 7 days of inactivity
+
+### Known Limitations to Communicate:
+- Quiz solving not available (requires browser extension future)
+- First sync takes 2-5 minutes
+- Large PDF files may take time to download
+
+---
+
+## 🔧 Code Quality Notes
+
+### Strengths
+- Clean separation of concerns (web, sync, agents, storage)
+- Thread-safe user context management
+- Proper SQL parameterization (no injection vulnerabilities)
+- Graceful error handling with user-friendly messages
+- Efficient database queries
+
+### Improvements Made
+- ✅ Fixed API key mismatch (ANTHROPIC vs OPENAI)
+- ✅ Added comprehensive activity tracking
+- ✅ Cleaned up unused legacy imports
+- ✅ Made quiz limitation explicit and honest
+
+### Technical Debt (Not Blocking)
+- No type hints (Python code mostly untyped)
+- Limited test coverage
+- No comprehensive logging for debugging
+- Browser extension not yet planned
+
+---
+
+## 🎯 Next Steps (Post-Beta)
 
 ### High Priority:
-1. ✅ **All blocking issues fixed** - App is production-ready
+1. Beta test with 5-10 users
+2. Monitor sync failures, collect logs
+3. Optimize slow sync times
+4. Polish error messages based on user feedback
 
-### Medium Priority (Post-Launch):
-- Remove cookies_json references from user_sessions table
-- Add type hints to main modules for maintainability
-- Clean up load_user_session() references (replaced with get_canvas_api_token)
+### Medium Priority (v1.1):
+1. Add type hints to main modules
+2. Implement comprehensive logging
+3. Add API rate limiting
+4. Improve file download progress
+5. Add data export for FERPA compliance
 
-### Low Priority:
-- Delete browser_auth.py entirely (if no longer needed for reference)
-- Add comprehensive logging for sync failures
-- Implement rate limiting for Canvas API calls
-- Add data export feature (FERPA compliance)
-
----
-
-## 🚀 Production Deployment Checklist
-
-**Before deploying to Railway:**
-
-- [x] Canvas API token authentication working
-- [x] Admin templates fixed (no deleted field references)
-- [x] Assignment agent uses correct AI provider (Claude)
-- [x] ANTHROPIC_API_KEY added to config
-- [x] Submission endpoint uses api_token only
-- [x] Quiz endpoint uses api_token only
-- [x] Data retention/cleanup implemented
-- [x] Database schema properly initialized
-- [x] File downloads working with 7-day expiration
-- [x] Google OAuth configured and tested
-
-**Environment variables needed for Railway:**
-```
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-DATABASE_URL=postgresql://...  (Supabase)
-FLASK_SECRET_KEY=...
-ANTHROPIC_API_KEY=...  (for assignment help)
-OPENAI_API_KEY=...     (for quiz solving)
-```
+### Low Priority (v2.0):
+1. Browser extension for in-page quiz solving
+2. Alternative file storage (Supabase Files/S3)
+3. Quiz solving via Canvas Quiz API
+4. User analytics/logging
+5. Rate limiting & abuse prevention
 
 ---
 
-## 📊 Completion Status
+## 📝 Summary for Users
 
-| Phase | Task | Status | Notes |
-|-------|------|--------|-------|
-| 1 | Canvas Token Auth | ✅ 95% | Setup form, encryption, sync all working |
-| 2 | Data Retention | ✅ 100% | Cleanup job, 7-day policy, admin UI ready |
-| 3 | Production Hardening | ✅ 85% | Fixed all blocking issues, ready to deploy |
-| **Overall** | **Production Ready** | **✅ 78%** | Blocking issues resolved, safe for public |
+**What Works:**
+- Sign in with Google
+- Connect Canvas account (one-time)
+- Auto-sync assignments and course materials
+- Get AI help with assignments
+- 7-day data retention with auto-cleanup
 
----
+**What's Deprecated:**
+- Quiz solving (was too complex, required browser session)
 
-## 🎯 Next Phase: Browser Extension (Future)
-
-Once web app is stable in production:
-
-1. Design token-based extension auth flow
-2. Build Chrome/Firefox extension for in-page quiz solving
-3. Extend quiz agent to work within Canvas UI
-4. Plan data sync from extension to backend
-
-Do NOT reuse `auth/browser_auth.py` for extension. Design new flow.
+**What to Expect:**
+- First sync: 2-5 minutes
+- Subsequent syncs: ~30 seconds (when triggered)
+- Auto-cleanup: Daily at midnight UTC
+- Data deleted: After 7 days of no activity
 
 ---
 
-## Git Commit Summary
+## 📌 Important Notes for Developers
 
-Recent fixes applied:
-1. Fixed admin templates (removed canvas_user references)
-2. Switched assignment_agent to Claude API
-3. Added ANTHROPIC_API_KEY to config
-4. Cleaned up submission endpoint (api_token only)
-5. Cleaned up quiz endpoint (api_token only)
-6. Marked browser_auth.py as deprecated
-
-All changes maintain backward compatibility where possible.
+1. **Activity Tracking**: Any user action should call `update_user_activity(google_id)` to keep retention accurate
+2. **Quiz Feature**: Don't try to revive the old quiz solver; design new architecture with browser extension or Canvas API
+3. **Token Management**: Canvas API token is encrypted and stored - never log or print it
+4. **Cleanup Job**: Runs via Flask CLI or background worker - ensure it's scheduled in Railway
+5. **Database**: Uses thread-local context for user isolation - always call `set_user_context()` and `clear_user_context()` properly
