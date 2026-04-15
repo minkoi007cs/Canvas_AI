@@ -1,10 +1,10 @@
 # CANVAS App - Browser Extension Architecture
 
-## Status: Phase 1 Complete - Database Schema Refactored
+## Status: Phase 2 Complete - Backend API Implemented
 
-**Updated**: 2026-04-15 (Phase 1 Complete)
-**Current Phase**: 1/6 ✅ Complete
-**Next Phase**: 2 - Backend API Implementation
+**Updated**: 2026-04-15 (Phase 2 Complete)
+**Current Phase**: 2/6 ✅ Complete
+**Next Phase**: 3 - Web App UI Refactor
 
 ---
 
@@ -107,11 +107,29 @@ Completed:
 - ✅ Created helper functions
 - ✅ Tested migration script
 
-### Phase 2: Backend API (3 hours) ⏳ NEXT
-- Implement `/api/auth/extension` (generate/verify tokens)
-- Implement `/api/assignment/complete` (receive context, return draft)
-- Implement `/api/completions` (list saved drafts)
-- Refactor `assignment_agent.py` to accept context directly
+### Phase 2: Backend API ✅ COMPLETE
+**Status**: ✅ Done (2.5 hours)
+
+Completed:
+- ✅ Implemented `POST /api/auth/extension` (generate extension auth token)
+- ✅ Implemented `POST /api/assignment/complete` (receive context, return AI draft)
+- ✅ Implemented `GET /api/completions` (paginated list of user's drafts)
+- ✅ Implemented `GET /api/completions/{id}` (view full draft with ownership check)
+- ✅ Implemented `DELETE /api/completions/{id}` (delete draft with ownership check)
+- ✅ Added `extension_auth_required` decorator for token validation
+- ✅ Refactored `assignment_agent.py` with `complete_assignment_from_context()` function
+- ✅ All endpoints properly handle user context and activity tracking
+
+**New Endpoints**:
+```
+POST   /api/auth/extension              → Generate extension token (requires Google login)
+POST   /api/assignment/complete         → Submit assignment context, get AI draft
+GET    /api/completions                 → List user's drafts (paginated)
+GET    /api/completions/{id}            → View specific draft
+DELETE /api/completions/{id}            → Delete draft
+```
+
+**Authentication**: All new endpoints use extension token validation via `extension_auth_required` decorator
 
 ### Phase 3: Web App UI (2.5 hours)
 - Remove Canvas token setup page

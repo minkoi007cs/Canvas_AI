@@ -735,6 +735,205 @@ def api_quiz(assignment_id):
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ── Extension API Authentication ──────────────────────────────────────────────
+
+def extension_auth_required(f):
+    """Decorator: Validate extension auth token from header or query param."""
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        # Get token from Authorization header or token query param
+        auth_header = request.headers.get("Authorization", "")
+        token = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        else:
+            token = request.args.get("token") or request.get_json().get("auth_token") if request.is_json else None
+
+        if not token:
+            return jsonify({"error": "Missing extension auth token"}), 401
+
+        # Validate token and get google_id
+        from storage.users import verify_extension_auth_token
+        google_id = verify_extension_auth_token(token)
+        if not google_id:
+            return jsonify({"error": "Invalid or expired extension auth token"}), 401
+
+        # Set up user context
+        _setup_user_context(google_id)
+        request.google_id = google_id  # Make google_id available to handler
+        return f(*args, **kwargs)
+    return wrapped
+
+
+# ── Extension API Endpoints ────────────────────────────────────────────────────
+
+@app.route("/api/auth/extension", methods=["POST"])
+@login_required
+def api_generate_extension_token():
+    """Generate a new extension auth token for the logged-in user."""
+    google_id = session.get("google_id")
+    if not google_id:
+        return jsonify({"error": "Not logged in"}), 401
+
+    try:
+        from storage.users import generate_extension_auth_token
+        token = generate_extension_auth_token(google_id)
+        return jsonify({"token": token}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/assignment/complete", methods=["POST"])
+@extension_auth_required
+def api_complete_assignment():
+    """
+    Accept assignment context from extension and return AI draft.
+
+    Request body:
+    {
+        "auth_token": "ext_xxx...",
+        "assignment_title": "Assignment 1",
+        "assignment_description": "...",
+        "context": "Optional course materials context",
+        "course_name": "Optional course name"
+    }
+
+    Response:
+    {
+        "draft": "AI-generated draft...",
+        "draft_id": 123
+    }
+    """
+    google_id = request.google_id
+    data = request.get_json() or {}
+
+    assignment_title = data.get("assignment_title", "Untitled Assignment").strip()
+    assignment_description = data.get("assignment_description", "").strip()
+    context = data.get("context", "").strip()
+    course_name = data.get("course_name", "Unknown Course").strip()
+    course_id = data.get("course_id")
+    assignment_id = data.get("assignment_id")
+
+    if not assignment_title:
+        return jsonify({"error": "assignment_title required"}), 400
+
+    try:
+        from agent.assignment_agent import complete_assignment_from_context
+        from storage.database import save_ai_completion
+        from storage.users import update_user_activity
+
+        # Update user activity
+        update_user_activity(google_id)
+
+        # Generate AI draft
+        ai_draft = complete_assignment_from_context(
+            assignment_title=assignment_title,
+            assignment_description=assignment_description,
+            context_text=context,
+            course_name=course_name,
+        )
+
+        # Save to database
+        completion_id = save_ai_completion(
+            assignment_title=assignment_title,
+            assignment_description=assignment_description,
+            context_summary=context[:500] if context else "",
+            ai_draft=ai_draft,
+            course_id=course_id,
+            assignment_id=assignment_id,
+        )
+
+        return jsonify({
+            "draft": ai_draft,
+            "draft_id": completion_id
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/completions", methods=["GET"])
+@extension_auth_required
+def api_list_completions():
+    """List user's AI draft completions (paginated)."""
+    google_id = request.google_id
+
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+
+    # Clamp to reasonable bounds
+    limit = min(max(limit, 1), 100)
+    offset = max(offset, 0)
+
+    try:
+        from storage.database import get_user_completions
+        from storage.users import update_user_activity
+
+        update_user_activity(google_id)
+
+        completions, total = get_user_completions(limit=limit, offset=offset)
+
+        return jsonify({
+            "completions": completions,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/completions/<int:completion_id>", methods=["GET"])
+@extension_auth_required
+def api_get_completion(completion_id):
+    """Retrieve a specific AI draft completion."""
+    google_id = request.google_id
+
+    try:
+        from storage.database import get_completion
+        from storage.users import update_user_activity
+
+        update_user_activity(google_id)
+
+        completion = get_completion(completion_id)
+        if not completion:
+            return jsonify({"error": "Completion not found"}), 404
+
+        # Verify ownership
+        if completion.get("google_id") != google_id:
+            return jsonify({"error": "Not authorized"}), 403
+
+        return jsonify(completion), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/completions/<int:completion_id>", methods=["DELETE"])
+@extension_auth_required
+def api_delete_completion(completion_id):
+    """Delete a specific AI draft completion."""
+    google_id = request.google_id
+
+    try:
+        from storage.database import get_completion, delete_completion
+        from storage.users import update_user_activity
+
+        update_user_activity(google_id)
+
+        # Verify ownership before deleting
+        completion = get_completion(completion_id)
+        if not completion:
+            return jsonify({"error": "Completion not found"}), 404
+
+        if completion.get("google_id") != google_id:
+            return jsonify({"error": "Not authorized"}), 403
+
+        delete_completion(completion_id)
+
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 from web.admin import admin_bp  # noqa
 app.register_blueprint(admin_bp)
 
