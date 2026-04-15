@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canvas AI Helper</title>
+  <link rel="stylesheet" href="css/popup.css">
+</head>
+<body>
+  <div id="popup-container">
+    <!-- Not authenticated state -->
+    <div id="not-authenticated" class="state">
+      <div class="icon-lock">🔐</div>
+      <h2>Setup Required</h2>
+      <p>You need to connect your extension to start using Canvas AI Helper.</p>
+      <button id="setup-btn" class="btn btn-primary">Go to Settings</button>
+    </div>
+
+    <!-- No assignment detected state -->
+    <div id="no-assignment" class="state hidden">
+      <div class="icon">📄</div>
+      <h2>No Assignment Found</h2>
+      <p>This tool works on Canvas assignment pages. Please navigate to an assignment and try again.</p>
+      <p class="hint">Supported pages: assignment details, quiz pages</p>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading" class="state hidden">
+      <div class="spinner"></div>
+      <h2>Generating Draft...</h2>
+      <p id="loading-message">Analyzing assignment and generating AI draft</p>
+    </div>
+
+    <!-- Success state (showing draft) -->
+    <div id="success" class="state hidden">
+      <div class="header">
+        <h2 id="assignment-title">Assignment Title</h2>
+        <button id="close-btn" class="btn-close">✕</button>
+      </div>
+
+      <div class="draft-preview">
+        <div class="draft-content" id="draft-content"></div>
+      </div>
+
+      <div class="actions">
+        <button id="copy-btn" class="btn btn-primary">Copy to Clipboard</button>
+        <button id="view-full-btn" class="btn btn-secondary">View Full Draft</button>
+      </div>
+
+      <p class="hint">💡 Review before submitting to Canvas. Make edits as needed.</p>
+    </div>
+
+    <!-- Error state -->
+    <div id="error" class="state hidden">
+      <div class="icon-error">⚠️</div>
+      <h2>Error</h2>
+      <p id="error-message">Something went wrong. Please try again.</p>
+      <button id="retry-btn" class="btn btn-primary">Retry</button>
+    </div>
+  </div>
+
+  <!-- Full draft modal -->
+  <div id="modal-overlay" class="hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">Full Draft</h2>
+        <button id="modal-close-btn" class="btn-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer">
+        <button id="modal-copy-btn" class="btn btn-primary">Copy Draft</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/popup.js"></script>
+</body>
+</html>
