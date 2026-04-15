@@ -1,8 +1,10 @@
 # CANVAS App - Browser Extension Architecture
 
-## Status: Architecture Audit Complete - Ready for Implementation
+## Status: Phase 1 Complete - Database Schema Refactored
 
-**Updated**: 2026-04-15
+**Updated**: 2026-04-15 (Phase 1 Complete)
+**Current Phase**: 1/6 ✅ Complete
+**Next Phase**: 2 - Backend API Implementation
 
 ---
 
@@ -47,6 +49,32 @@ User copies draft and submits manually to Canvas
 
 ---
 
+## 🚀 PHASE 1: COMPLETE ✅
+
+### What Was Done
+- ✅ Created `ai_completions` table (stores AI-generated drafts)
+- ✅ Created `extension_auth_tokens` table (stores extension auth tokens)
+- ✅ Removed `canvas_api_token` column from users table
+- ✅ Removed `canvas_linked` column from users table
+- ✅ Marked old Canvas tables as deprecated (NOT deleted, kept for reference)
+- ✅ Added database functions: save_ai_completion, get_user_completions, delete_completion
+- ✅ Added storage functions: generate_extension_auth_token, verify_extension_auth_token
+- ✅ Created migration script (idempotent, reversible)
+- ✅ Migration tested and verified successfully
+
+### Migration Approach
+- Old Canvas tables remain in database (marked deprecated)
+- Zero data loss - all existing user accounts preserved
+- Can safely test extension code without deleting legacy data
+- Tables can be removed later after full extension rollout
+
+### Files Modified
+- `storage/database.py` - Added new tables, helper functions
+- `storage/users.py` - Added extension auth functions
+- `migrate_to_extension.py` - New migration script
+
+---
+
 ## 🎯 MVP Scope
 
 ### ✅ INCLUDE IN MVP
@@ -68,13 +96,18 @@ User copies draft and submits manually to Canvas
 
 ## 🛠️ Implementation Plan
 
-### Phase 1: Database Schema (1.5 hours)
-- Remove Canvas data tables (courses, assignments, files, etc.)
-- Add `ai_completions` table (store AI-generated drafts)
-- Add `extension_auth_tokens` table (auth management)
-- Remove `canvas_api_token` column from users table
+### Phase 1: Database Schema ✅ COMPLETE
+**Status**: ✅ Done (1.5 hours)
 
-### Phase 2: Backend API (3 hours)
+Completed:
+- ✅ Added `ai_completions` table 
+- ✅ Added `extension_auth_tokens` table
+- ✅ Removed Canvas token columns from users
+- ✅ Marked old tables as deprecated (kept them)
+- ✅ Created helper functions
+- ✅ Tested migration script
+
+### Phase 2: Backend API (3 hours) ⏳ NEXT
 - Implement `/api/auth/extension` (generate/verify tokens)
 - Implement `/api/assignment/complete` (receive context, return draft)
 - Implement `/api/completions` (list saved drafts)
