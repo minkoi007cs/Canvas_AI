@@ -140,13 +140,13 @@ def setup_canvas_get():
 
 @app.route("/setup/canvas/reset")
 def setup_canvas_reset():
-    """Clear canvas_linked so user can re-enter credentials."""
+    """Clear Canvas token so user can re-enter it."""
     google_id = session.get("google_id")
     if not google_id:
         return redirect(url_for("login_page"))
     from storage.users import get_users_conn, _exec
     conn = get_users_conn()
-    _exec(conn, "UPDATE users SET canvas_linked=0, canvas_user=NULL, canvas_pass=NULL WHERE google_id=?", (google_id,))
+    _exec(conn, "UPDATE users SET canvas_linked=0, canvas_api_token=NULL WHERE google_id=?", (google_id,))
     conn.commit()
     conn.close()
     return redirect(url_for("setup_canvas_get"))
@@ -158,17 +158,33 @@ def setup_canvas_post():
     if not google_id:
         return redirect(url_for("login_page"))
 
-    canvas_user = request.form.get("canvas_user", "").strip()
-    canvas_pass = request.form.get("canvas_pass", "").strip()
+    canvas_api_token = request.form.get("canvas_api_token", "").strip()
 
-    if not canvas_user or not canvas_pass:
+    if not canvas_api_token:
         from storage.users import get_user
         return render_template("setup_canvas.html",
                                user=get_user(google_id) or {},
-                               error="Vui lòng nhập FlashLine ID và password.")
+                               error="Vui lòng dán Canvas API token của bạn.")
 
-    from storage.users import set_canvas_credentials
-    set_canvas_credentials(google_id, canvas_user, canvas_pass)
+    # Validate token by testing it with Canvas API
+    try:
+        from api.canvas_client import CanvasClient
+        client = CanvasClient(api_token=canvas_api_token)
+        # Test with a simple API call to verify token validity
+        user_info = client.get("/users/self")
+        if not user_info or "id" not in user_info:
+            return render_template("setup_canvas.html",
+                                   user=get_user(google_id) or {},
+                                   error="Token không hợp lệ. Vui lòng kiểm tra lại.")
+    except Exception as e:
+        error_msg = str(e) or "Không thể xác minh token. Kiểm tra lại token và thử lại."
+        return render_template("setup_canvas.html",
+                               user=get_user(google_id) or {},
+                               error=f"Lỗi xác minh: {error_msg}")
+
+    # Token is valid - save it
+    from storage.users import set_canvas_api_token
+    set_canvas_api_token(google_id, canvas_api_token)
 
     _setup_user_context(google_id)
     _trigger_sync(google_id)
@@ -177,54 +193,34 @@ def setup_canvas_post():
 
 
 def _trigger_sync(google_id: str):
-    """Run Canvas sync in a background thread."""
+    """Run Canvas sync in a background thread using API token."""
     import threading
-    import os
-
-    # On local dev (no RAILWAY_ENVIRONMENT), run browser visible so user can handle MFA
-    is_production = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("HEADLESS_BROWSER"))
-    headless = is_production
 
     def _run():
         _setup_user_context(google_id)
-        from storage.users import update_sync_status
+        from storage.users import update_sync_status, get_canvas_api_token, update_user_last_sync
+        from storage.database import init_db
+        from api.canvas_client import CanvasClient
+        from sync.courses import sync_courses
+        from sync.assignments import sync_assignments
+        from sync.files import sync_files
+        from sync.modules import sync_modules
+        from sync.pages_deep import sync_pages_deep
+        from sync.organizer import build_folders
 
         def step(msg):
             update_sync_status(google_id, f"syncing:{msg}")
             print(f"[sync] {msg}", flush=True)
 
         try:
-            step("Đang khởi động trình duyệt...")
-            from storage.users import get_canvas_credentials, save_user_session
-            from storage.database import init_db
-            from auth.browser_auth import login
-            from api.canvas_client import CanvasClient
-            from sync.courses import sync_courses
-            from sync.assignments import sync_assignments
-            from sync.files import sync_files
-            from sync.modules import sync_modules
-            from sync.pages_deep import sync_pages_deep
-            from sync.organizer import build_folders
-
-            username, password = get_canvas_credentials(google_id)
-            if not username or not password:
-                update_sync_status(google_id, "error:No Canvas credentials saved.")
+            step("Đang lấy Canvas API token...")
+            api_token = get_canvas_api_token(google_id)
+            if not api_token:
+                update_sync_status(google_id, "error:No Canvas API token. Please re-setup Canvas connection.")
                 return
 
-            step("Đang đăng nhập Canvas...")
-            try:
-                cookies, api_token = login(username, password, headless=headless)
-            except Exception as login_err:
-                err = str(login_err) or repr(login_err) or type(login_err).__name__
-                update_sync_status(google_id, f"error:Login failed: {err}")
-                return
-            if not cookies and not api_token:
-                update_sync_status(google_id, "error:Login failed. Check credentials.")
-                return
-
-            save_user_session(google_id, cookies or [], api_token or "")
             init_db()
-            client = CanvasClient(cookies=cookies, api_token=api_token)
+            client = CanvasClient(api_token=api_token)
 
             step("Đang tải danh sách courses...")
             courses = sync_courses(client)
@@ -239,11 +235,12 @@ def _trigger_sync(google_id: str):
             sync_modules(client, courses)
 
             step("Đang tải nội dung pages...")
-            sync_pages_deep(cookies or [], api_token=api_token or "")
+            sync_pages_deep(api_token=api_token)
 
             step("Đang tổ chức folders...")
             build_folders()
 
+            update_user_last_sync(google_id)
             update_sync_status(google_id, "done")
         except Exception as e:
             import traceback
@@ -720,6 +717,18 @@ def api_quiz(assignment_id):
 
 from web.admin import admin_bp  # noqa
 app.register_blueprint(admin_bp)
+
+
+# ── CLI Commands ──────────────────────────────────────────────────────────────
+
+@app.cli.command("cleanup")
+def cleanup_command():
+    """Run data cleanup (delete inactive users' data)."""
+    from tasks.cleanup import cleanup_all
+    import json
+    result = cleanup_all()
+    print(json.dumps(result, indent=2))
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=8080, host="0.0.0.0")

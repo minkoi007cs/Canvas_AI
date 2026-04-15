@@ -106,6 +106,7 @@ def init_db():
             course_code TEXT,
             enrollment_term_id BIGINT,
             workflow_state TEXT,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -122,6 +123,7 @@ def init_db():
             submission_types TEXT,
             workflow_state TEXT,
             has_submitted_submissions INTEGER DEFAULT 0,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -140,6 +142,7 @@ def init_db():
             submission_type TEXT,
             body TEXT,
             url TEXT,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -155,6 +158,7 @@ def init_db():
             url TEXT,
             size BIGINT,
             local_path TEXT,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -166,6 +170,7 @@ def init_db():
             course_id BIGINT,
             name TEXT,
             position INTEGER,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -181,6 +186,7 @@ def init_db():
             content_id BIGINT,
             url TEXT,
             page_url TEXT,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -194,6 +200,7 @@ def init_db():
             body TEXT,
             url TEXT,
             updated_at TEXT,
+            synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
             raw JSONB,
             PRIMARY KEY (google_id, id)
         )
@@ -201,6 +208,14 @@ def init_db():
     ]
     for stmt in statements:
         conn.execute(stmt)
+
+    # Add synced_at column to existing tables (safe to run on existing DB)
+    for table in ["courses", "assignments", "submissions", "files", "modules", "module_items", "pages"]:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))")
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -211,14 +226,15 @@ def upsert_course(course: dict):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO courses (google_id, id, name, course_code, enrollment_term_id, workflow_state, raw)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO courses (google_id, id, name, course_code, enrollment_term_id, workflow_state, raw, synced_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
         ON CONFLICT (google_id, id) DO UPDATE SET
             name               = EXCLUDED.name,
             course_code        = EXCLUDED.course_code,
             enrollment_term_id = EXCLUDED.enrollment_term_id,
             workflow_state     = EXCLUDED.workflow_state,
-            raw                = EXCLUDED.raw
+            raw                = EXCLUDED.raw,
+            synced_at          = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
     """, (gid, course["id"], course.get("name"), course.get("course_code"),
           course.get("enrollment_term_id"), course.get("workflow_state"),
           json.dumps(course)))
@@ -233,8 +249,8 @@ def upsert_assignment(a: dict):
         INSERT INTO assignments
             (google_id, id, course_id, name, description, due_at,
              points_possible, submission_types, workflow_state,
-             has_submitted_submissions, raw)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             has_submitted_submissions, synced_at, raw)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             course_id                  = EXCLUDED.course_id,
             name                       = EXCLUDED.name,
@@ -244,6 +260,7 @@ def upsert_assignment(a: dict):
             submission_types           = EXCLUDED.submission_types,
             workflow_state             = EXCLUDED.workflow_state,
             has_submitted_submissions  = EXCLUDED.has_submitted_submissions,
+            synced_at                  = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw                        = EXCLUDED.raw
     """, (
         gid, a["id"], a["course_id"], a.get("name", ""),
@@ -265,8 +282,8 @@ def upsert_submission(s: dict, course_id: int):
         INSERT INTO submissions
             (google_id, id, assignment_id, course_id, user_id,
              submitted_at, score, grade, workflow_state,
-             submission_type, body, url, raw)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             submission_type, body, url, synced_at, raw)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             assignment_id   = EXCLUDED.assignment_id,
             course_id       = EXCLUDED.course_id,
@@ -278,6 +295,7 @@ def upsert_submission(s: dict, course_id: int):
             submission_type = EXCLUDED.submission_type,
             body            = EXCLUDED.body,
             url             = EXCLUDED.url,
+            synced_at       = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw             = EXCLUDED.raw
     """, (
         gid, s["id"], s["assignment_id"], course_id,
@@ -297,8 +315,8 @@ def upsert_file(f: dict, course_id: int):
     conn.execute("""
         INSERT INTO files
             (google_id, id, course_id, display_name, filename,
-             content_type, url, size, local_path, raw)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             content_type, url, size, local_path, synced_at, raw)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             course_id    = EXCLUDED.course_id,
             display_name = EXCLUDED.display_name,
@@ -307,6 +325,7 @@ def upsert_file(f: dict, course_id: int):
             url          = EXCLUDED.url,
             size         = EXCLUDED.size,
             local_path   = COALESCE(NULLIF(EXCLUDED.local_path, ''), files.local_path),
+            synced_at    = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw          = EXCLUDED.raw
     """, (
         gid, f["id"], course_id,
@@ -323,12 +342,13 @@ def upsert_module(m: dict, course_id: int):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO modules (google_id, id, course_id, name, position, raw)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO modules (google_id, id, course_id, name, position, synced_at, raw)
+        VALUES (%s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             course_id = EXCLUDED.course_id,
             name      = EXCLUDED.name,
             position  = EXCLUDED.position,
+            synced_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw       = EXCLUDED.raw
     """, (gid, m["id"], course_id, m.get("name", ""),
           m.get("position", 0), json.dumps(m)))
@@ -342,8 +362,8 @@ def upsert_module_item(item: dict, module_id: int, course_id: int):
     conn.execute("""
         INSERT INTO module_items
             (google_id, id, module_id, course_id, title, type,
-             content_id, url, page_url, raw)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             content_id, url, page_url, synced_at, raw)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             module_id  = EXCLUDED.module_id,
             course_id  = EXCLUDED.course_id,
@@ -352,6 +372,7 @@ def upsert_module_item(item: dict, module_id: int, course_id: int):
             content_id = EXCLUDED.content_id,
             url        = EXCLUDED.url,
             page_url   = EXCLUDED.page_url,
+            synced_at  = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw        = EXCLUDED.raw
     """, (
         gid, item["id"], module_id, course_id,
@@ -369,14 +390,15 @@ def upsert_page(p: dict, course_id: int):
     conn = get_conn()
     conn.execute("""
         INSERT INTO pages
-            (google_id, id, course_id, title, body, url, updated_at, raw)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (google_id, id, course_id, title, body, url, updated_at, synced_at, raw)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             course_id  = EXCLUDED.course_id,
             title      = EXCLUDED.title,
             body       = EXCLUDED.body,
             url        = EXCLUDED.url,
             updated_at = EXCLUDED.updated_at,
+            synced_at  = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw        = EXCLUDED.raw
     """, (
         gid, page_id, course_id,

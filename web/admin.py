@@ -100,7 +100,7 @@ def toggle_ban(google_id):
 @admin_bp.route("/users/<google_id>/resync", methods=["POST"])
 @admin_login_required
 def resync_user(google_id):
-    from storage.users import get_user, get_canvas_credentials
+    from storage.users import get_user
     user = get_user(google_id)
     if not user or not user.get("canvas_linked"):
         return jsonify({"error": "User has no Canvas account linked"}), 400
@@ -175,3 +175,16 @@ def user_detail(google_id):
 
     return render_template("admin/user_detail.html",
         user=user, canvas_stats=canvas_stats, data_size_mb=data_size_mb)
+
+
+# ── Cleanup ─────────────────────────────────────────────────────────────────────
+
+@admin_bp.route("/cleanup", methods=["GET", "POST"])
+@admin_login_required
+def cleanup():
+    """Manually trigger data cleanup."""
+    result = None
+    if request.method == "POST":
+        from tasks.cleanup import cleanup_all
+        result = cleanup_all()
+    return render_template("admin/cleanup.html", result=result)
