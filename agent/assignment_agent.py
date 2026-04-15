@@ -226,6 +226,97 @@ def gather_module_context(assignment_id: int) -> dict:
 
 # ─── Main AI completion ────────────────────────────────────────────────────────
 
+def complete_assignment_from_context(assignment_title: str,
+                                     assignment_description: str,
+                                     context_text: str = "",
+                                     course_name: str = "Unknown Course",
+                                     progress_cb=None) -> str:
+    """
+    Generate assignment response from provided context (for extension API).
+
+    Does NOT perform database lookups. All data comes from parameters.
+
+    Args:
+        assignment_title: Assignment name
+        assignment_description: Assignment instructions/prompt
+        context_text: Relevant course materials (PDFs, notes, readings)
+        course_name: Course name for system prompt
+        progress_cb: Callback for progress updates
+
+    Returns:
+        AI-generated draft response or error message
+    """
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        if progress_cb:
+            progress_cb("Cần ANTHROPIC_API_KEY trong .env")
+        return "ERROR: ANTHROPIC_API_KEY not configured"
+
+    def emit(msg):
+        if progress_cb:
+            progress_cb(msg)
+
+    emit("Phân tích tài liệu...")
+
+    # Truncate context if too large
+    if len(context_text) > MAX_TOTAL_CHARS:
+        context_text = context_text[:MAX_TOTAL_CHARS]
+        emit(f"Context truncated to {MAX_TOTAL_CHARS:,} characters")
+
+    # Build system prompt
+    system_prompt = (
+        f"You are an excellent student at Kent State University taking {course_name}. "
+        "You write thorough, well-organized, academically strong responses. "
+        "When course materials are provided below, base your answers DIRECTLY on them — "
+        "cite specific details, examples, and quotes from those materials. "
+        "Write in clear academic English unless otherwise specified."
+    )
+
+    # Build context section
+    context_section = ""
+    if context_text:
+        context_section = f"""
+---
+## Course Materials
+
+The following are lecture transcripts, study guides, and readings relevant to this assignment.
+Use them as your PRIMARY source. Reference specific content from these materials.
+
+{context_text}
+---
+"""
+
+    # Build user prompt
+    user_prompt = f"""## Assignment: {assignment_title}
+
+{assignment_description}
+{context_section}
+## Your Response
+
+Write a complete, thoughtful response to this assignment:"""
+
+    emit("Tạo câu trả lời...")
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+
+        answer = response.content[0].text
+        emit("Hoàn thành!")
+        return answer
+
+    except Exception as e:
+        emit(f"Lỗi Claude: {e}")
+        return f"ERROR: {str(e)}"
+
+
 def complete_assignment(assignment_id: int, progress_cb=None):
     """
     Generate an answer for an assignment using Claude AI.
