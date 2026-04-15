@@ -85,6 +85,16 @@ def init_users_db():
             FOREIGN KEY (google_id) REFERENCES users(google_id)
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS extension_auth_tokens (
+            id SERIAL PRIMARY KEY,
+            google_id TEXT NOT NULL UNIQUE,
+            auth_token VARCHAR(64) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            last_used_at TIMESTAMP,
+            FOREIGN KEY (google_id) REFERENCES users(google_id) ON DELETE CASCADE
+        )
+    """)
 
     # Add missing columns (safe to run on existing DB)
     for col, definition in [
