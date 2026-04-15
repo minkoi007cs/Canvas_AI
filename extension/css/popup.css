@@ -63,6 +63,41 @@ p {
   font-style: italic;
 }
 
+.supported-pages {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  text-align: left;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #666;
+}
+
+.supported-pages h4 {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+  color: #333;
+}
+
+.supported-pages ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.supported-pages li {
+  margin-bottom: 4px;
+}
+
+.quiz-info {
+  background: #e8f4fd;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border-left: 3px solid #0770A3;
+  font-size: 13px;
+  color: #055a82;
+  margin-top: 8px;
+}
+
 /* Buttons */
 .btn {
   padding: 8px 16px;
