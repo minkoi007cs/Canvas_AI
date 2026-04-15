@@ -632,12 +632,12 @@ def api_submit(assignment_id):
     if not assignment:
         return jsonify({"error": "Assignment not found"}), 404
     try:
-        from storage.users import load_user_session
-        cookies, api_token = load_user_session(session["google_id"])
-        if not cookies and not api_token:
+        from storage.users import get_canvas_api_token
+        api_token = get_canvas_api_token(session["google_id"])
+        if not api_token:
             return jsonify({"error": "Session hết hạn. Vào Settings → Re-sync."}), 401
         from api.canvas_client import CanvasClient
-        client    = CanvasClient(cookies=cookies, api_token=api_token)
+        client    = CanvasClient(api_token=api_token)
         course_id = assignment["course_id"]
         result    = client.post(
             f"/courses/{course_id}/assignments/{assignment_id}/submissions",
@@ -662,9 +662,9 @@ def api_quiz(assignment_id):
     quiz_id = raw.get("quiz_id")
     if not quiz_id:
         return jsonify({"error": "Not a quiz assignment"}), 400
-    from storage.users import load_user_session
-    cookies, api_token = load_user_session(session["google_id"])
-    if not api_token and not cookies:
+    from storage.users import get_canvas_api_token
+    api_token = get_canvas_api_token(session["google_id"])
+    if not api_token:
         return jsonify({"error": "Chưa có session. Vào dashboard → Sync Canvas trước."}), 401
 
     google_id = session["google_id"]
@@ -686,7 +686,6 @@ def api_quiz(assignment_id):
                     quiz_id=quiz_id,
                     assignment_id=assignment_id,
                     api_token=api_token,
-                    cookies=cookies,
                     progress_cb=cb,
                 )
                 q.put(("done", result))

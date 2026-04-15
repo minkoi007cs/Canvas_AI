@@ -68,12 +68,12 @@
       <h2 class="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wide">Details</h2>
       <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
         <div>
-          <dt class="text-gray-500 text-xs mb-0.5">Canvas username</dt>
-          <dd class="font-mono text-green-400">{{ user.canvas_user or '—' }}</dd>
+          <dt class="text-gray-500 text-xs mb-0.5">Canvas status</dt>
+          <dd>{% if user.canvas_linked %}<span class="text-green-400">✓ API token linked</span>{% else %}<span class="text-gray-500">Not linked</span>{% endif %}</dd>
         </div>
         <div>
-          <dt class="text-gray-500 text-xs mb-0.5">Canvas linked</dt>
-          <dd>{% if user.canvas_linked %}<span class="text-green-400">Yes</span>{% else %}<span class="text-gray-500">No</span>{% endif %}</dd>
+          <dt class="text-gray-500 text-xs mb-0.5">Last sync</dt>
+          <dd class="text-gray-400">{{ user.last_sync_at or '—' }}</dd>
         </div>
         <div>
           <dt class="text-gray-500 text-xs mb-0.5">Sync status</dt>

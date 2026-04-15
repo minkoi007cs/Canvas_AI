@@ -228,13 +228,15 @@ def gather_module_context(assignment_id: int) -> dict:
 
 def complete_assignment(assignment_id: int, progress_cb=None):
     """
-    Generate an answer for an assignment using GPT-4o.
+    Generate an answer for an assignment using Claude AI.
+    Reads course materials from module context, generates thoughtful responses.
     progress_cb(msg: str) is called for live status updates.
     Returns: str or None
     """
-    if not OPENAI_API_KEY:
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
         if progress_cb:
-            progress_cb("Cần OPENAI_API_KEY trong .env")
+            progress_cb("Cần ANTHROPIC_API_KEY trong .env")
         return None
 
     def emit(msg):
@@ -334,28 +336,28 @@ Answer each question or prompt thoroughly with specific evidence from course mat
 Write your complete response now:"""
 
     # ── Step 3: call AI ───────────────────────────────────────────────────────
-    emit("Đang tạo câu trả lời với GPT-4o...")
+    emit("Đang tạo câu trả lời với Claude...")
 
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        from anthropic import Anthropic
+        from config import ANTHROPIC_API_KEY
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
-        response = client.chat.completions.create(
-            model="gpt-4o",
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
             max_tokens=4096,
-            temperature=0.6,
+            system=system_prompt,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_prompt},
+                {"role": "user", "content": user_prompt},
             ],
         )
 
-        answer = response.choices[0].message.content
+        answer = response.content[0].text
         emit("Hoàn thành!")
         return answer
 
     except Exception as e:
-        emit(f"Lỗi GPT-4o: {e}")
+        emit(f"Lỗi Claude: {e}")
         return None
 
 
