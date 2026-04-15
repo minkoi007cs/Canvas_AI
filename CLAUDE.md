@@ -1,273 +1,391 @@
-# CANVAS Web App - Current Implementation Status
+# CANVAS App - Browser Extension Architecture
 
-## Last Updated: 2026-04-15 (After Production-Ready Fixes)
+## Status: Architecture Audit Complete - Ready for Implementation
 
-**Current Status**: 82% Complete → **Beta Ready** (safe for small group testing)
-
----
-
-## ✅ Working Features
-
-### 1. Google OAuth Login ✓
-- Proper OAuth 2.0 flow with authlib
-- Session-based auth with thread-local context
-- User isolation via google_id
-- **Status**: SOLID
-
-### 2. Canvas API Token Setup ✓
-- User provides Canvas API token (not password)
-- Token validated before saving
-- Token encrypted with Fernet in database
-- Clear instructions for token generation
-- **Status**: WORKING
-
-### 3. Data Sync Pipeline ✓
-- Background thread syncing via Canvas API
-- Syncs: courses, assignments, files, modules, pages, submissions
-- Progress tracking via sync_status
-- Respects activity timestamps
-- **Status**: WORKING
-
-### 4. Assignment AI Helper ✓
-- Uses Anthropic Claude API (claude-3-5-sonnet-20241022)
-- Reads course materials for context
-- Generates thoughtful responses
-- Streams progress to frontend
-- **Status**: WORKING
-
-### 5. Activity Tracking & Retention ✓
-- Tracks user activity via `last_accessed_at`
-- Updates on: login, dashboard view, sync, submissions, API calls
-- 7-day retention policy (configurable via CLEANUP_DAYS)
-- Auto-deletes inactive user data
-- **Status**: WORKING
-
-### 6. Admin Panel ✓
-- User management (toggle admin, ban, delete)
-- Canvas sync status dashboard
-- Data size monitoring
-- Manual cleanup triggers
-- **Status**: WORKING
-
-### 7. Database & Isolation ✓
-- PostgreSQL with Supabase support
-- (google_id, id) composite keys for multi-tenancy
-- Per-user data deletion in cleanup
-- Proper transaction handling
-- **Status**: SOLID
+**Updated**: 2026-04-15
 
 ---
 
-## ⚠️ Known Limitations & Deprecated Features
+## 🔄 MAJOR PIVOT: Why Extension Architecture?
 
-### Quiz Solving Feature (DEPRECATED)
-- **Status**: Not supported in current architecture
-- **Why**: Quiz solving requires browser session + Playwright automation
-- **Current behavior**: Fails gracefully with clear error message
-- **Path forward**: Would require reimplementing with Canvas Quiz API or browser extension architecture
+### Previous Approach (Deprecated)
+- ❌ Relied on users providing Canvas API tokens
+- ❌ Unrealistic in practice - users don't have tokens
+- ❌ Attempted server-side Playwright login (fragile, risky)
+- ❌ No way to scale to multiple Canvas instances
 
-### Session Cookies (LEGACY)
-- `user_sessions` table still exists but no longer populated
-- Old `load_user_session()` function deprecated
-- Some functions accept cookies as optional fallback (e.g., CanvasClient)
-- **Impact**: None on main flow; kept for backward compatibility
-
-### browser_auth.py (DEPRECATED)
-- 390-line Playwright login automation
-- Not imported by any active code
-- Marked with deprecation warning
-- Can be safely deleted in future cleanup
+### New Approach (CURRENT)
+- ✅ Browser extension reads assignment from user's Canvas session
+- ✅ No credentials needed - extension runs where user already logged in
+- ✅ Reliable - uses real browser session, not automation
+- ✅ Scalable to any Canvas instance without setup
+- ✅ Secure - no server-side password/credential storage
 
 ---
 
-## 📋 Issues Fixed in This Session
-
-### Issue #1: Quiz Flow Inconsistency ✅ FIXED
-- Route was calling `solve_quiz_api()` without cookies
-- Function required cookies but route had none
-- **Fix**: Made function fail gracefully with clear message explaining limitation
-- **Code**: `agent/quiz_agent.py` lines 451-489
-
-### Issue #2: Retention Not Tracking Activity ✅ FIXED
-- Cleanup was using `last_sync_at` instead of user activity
-- `last_accessed_at` column existed but never updated
-- **Fixes Applied**:
-  1. Added `update_user_activity()` function in `storage/users.py`
-  2. Changed cleanup logic to use `last_accessed_at` instead of `last_sync_at`
-  3. Added activity tracking to: dashboard, submit, quiz endpoints
-  4. Cleanup now properly reflects "7-day inactivity" requirement
-- **Files modified**: `storage/users.py`, `tasks/cleanup.py`, `web/app.py`
-
-### Issue #3: Legacy Code References ✅ FIXED
-- Removed unused `load_user_session` import from `web/admin.py`
-- **Impact**: Cleaner code, no functional change
-
-### Issue #4: Assignment API Key Mismatch ✅ FIXED
-- Route was checking for `OPENAI_API_KEY` but function uses `ANTHROPIC_API_KEY`
-- Would pass check but fail at runtime
-- **Fix**: Updated route to check `ANTHROPIC_API_KEY`
-- **File**: `web/app.py` line 584-586
-
----
-
-## 🔄 Current Architecture
+## 📐 Architecture Overview
 
 ```
-User → Google OAuth → Canvas API Token Setup → Sync Service
-                      ↓
-                   Claude API (assignments)
-                   GPT-4o Vision (quizzes - deprecated)
-                   Canvas API (data sync)
-                      ↓
-                   Activity Tracking
-                      ↓
-                   7-day Cleanup Job
+User's Canvas Session (in browser)
+        ↓ Extension reads page
+        ↓
+   Extract assignment data
+   (title, description, context)
+        ↓
+   Send to Backend API
+        ↓
+Backend: Validate auth token
+   ↓
+Call Claude AI with context
+   ↓
+Save draft to database
+   ↓
+Return draft to extension/web app
+        ↓
+User copies draft and submits manually to Canvas
 ```
 
-**Key Design Decisions:**
-- ✅ No server-side password storage (FERPA compliant)
-- ✅ User-controlled credentials (Canvas API token)
-- ✅ Explicit data retention policy
-- ⚠️ Quiz feature requires browser automation (can't do with API token only)
+---
+
+## 🎯 MVP Scope
+
+### ✅ INCLUDE IN MVP
+- Assignment help (generate draft from title + description + context)
+- Draft history (list, view, delete saved drafts)
+- Google OAuth login for user account
+- Extension auth token management
+- API for assignment context submission
+- AI draft generation and storage
+
+### ❌ NOT IN MVP (v1.1+)
+- Quiz automation (too complex, save for later)
+- Auto-submit to Canvas (just copy/paste for now)
+- Multiple Canvas instances (Kent State focus)
+- Subscription/billing
+- Offline support
 
 ---
 
-## 🚀 Deployment Requirements
+## 🛠️ Implementation Plan
 
-**Environment Variables Needed:**
+### Phase 1: Database Schema (1.5 hours)
+- Remove Canvas data tables (courses, assignments, files, etc.)
+- Add `ai_completions` table (store AI-generated drafts)
+- Add `extension_auth_tokens` table (auth management)
+- Remove `canvas_api_token` column from users table
+
+### Phase 2: Backend API (3 hours)
+- Implement `/api/auth/extension` (generate/verify tokens)
+- Implement `/api/assignment/complete` (receive context, return draft)
+- Implement `/api/completions` (list saved drafts)
+- Refactor `assignment_agent.py` to accept context directly
+
+### Phase 3: Web App UI (2.5 hours)
+- Remove Canvas token setup page
+- Remove course/assignment browsing
+- Add `/settings` page (show extension token)
+- Add `/drafts` page (draft history)
+- Modify `/` dashboard (show recent drafts)
+
+### Phase 4: Browser Extension (5 hours)
+- Create Manifest v3 extension
+- Build popup UI (show draft)
+- Create content script (read assignment page)
+- Implement auth token management
+- Add API communication
+
+### Phase 5: Testing (2 hours)
+- Test extension reads page correctly
+- Test backend receives data
+- Test AI generates draft
+- Test auth flow works
+
+### Phase 6: Deployment (1 hour)
+- Deploy to Railway
+- Update environment variables
+- Test end-to-end
+
+**Total Time**: ~14-15 hours focused development
+
+---
+
+## 📊 What's Being Reused vs Removed
+
+### ✅ KEEP & REFACTOR
 ```
-GOOGLE_CLIENT_ID=...           (Google OAuth)
-GOOGLE_CLIENT_SECRET=...       (Google OAuth)
-DATABASE_URL=postgresql://...  (Supabase)
-FLASK_SECRET_KEY=...           (Session encryption)
-ANTHROPIC_API_KEY=...          (Claude for assignments)
-OPENAI_API_KEY=...             (GPT-4o for images/docs)
-CLEANUP_ENABLED=true           (Data retention)
-CLEANUP_DAYS=7                 (Retention period)
+config.py (100%)                 → Keep all env vars
+storage/users.py (70%)           → Keep user auth, remove canvas tokens
+agent/assignment_agent.py (60%)  → Refactor to accept context param
+storage/database.py (40%)        → Remove Canvas tables, add completions
+tasks/cleanup.py (90%)           → Remove Canvas table cleanup
+web/app.py (40%)                 → Keep OAuth, remove sync/setup
 ```
 
-**Tested Flows:**
-- [x] Google login → Canvas token setup
-- [x] Background data sync
-- [x] Dashboard navigation
-- [x] Assignment AI completion
-- [x] User activity tracking
-- [x] Data cleanup job
-- [x] Admin panel operations
-- [x] API authentication
+### ❌ DELETE
+```
+sync/*                  → Entire folder (no server sync)
+auth/browser_auth.py    → Playwright login not needed
+api/canvas_client.py    → No Canvas API from backend
+```
 
-**Not Tested (No Integration Test Environment):**
-- Quiz feature (known limitation, deprecated)
-- Multi-user concurrent sync
-- Large file downloads
-- Database failover
+### 📈 Result
+- Remove: ~300 lines of dead code
+- Keep: ~800 lines of core logic  
+- Add: ~600 lines of extension APIs
+- Net: ~+300 lines (smaller, focused)
 
 ---
 
-## 📊 Completion Status by Component
+## 🔐 Authentication Flow
 
-| Component | Completion | Notes |
-|-----------|-----------|-------|
-| OAuth Login | 95% | Solid, production-ready |
-| Canvas Token Auth | 100% | Complete, validated, encrypted |
-| Data Sync | 95% | All main entities synced, activity tracked |
-| Assignment AI | 95% | Works with Claude, API key check fixed |
-| Quiz AI | 0% | Deprecated, fails gracefully |
-| Retention/Cleanup | 100% | Activity tracking, 7-day policy, auto-delete |
-| Admin Panel | 90% | User management, no admin-specific actions |
-| Database | 95% | Schema OK, multi-tenancy working |
-| **Overall** | **82%** | **Beta-ready for small group** |
+### How Extension Proves Identity
+1. User logs into web app (Google OAuth)
+2. Web app generates `extension_auth_token` (random 32 chars)
+3. Web app displays token in `/settings`
+4. User copies token from settings
+5. User opens extension, goes to Options
+6. User pastes token into extension storage
+7. Extension stores locally
+8. Extension includes token in every API request
+9. Backend verifies token → google_id mapping
 
----
-
-## ⚡ Quick Start for Testers
-
-### For Beta Testing:
-1. Deploy to Railway with env vars
-2. Users sign up with Google
-3. Users paste Canvas API token (from Canvas → Account → Settings → Approved Integrations)
-4. Data syncs automatically in background
-5. Users can view assignments and get AI help
-6. Data auto-deletes after 7 days of inactivity
-
-### Known Limitations to Communicate:
-- Quiz solving not available (requires browser extension future)
-- First sync takes 2-5 minutes
-- Large PDF files may take time to download
+### Why This Works
+- Simple to implement
+- User explicitly approves extension
+- No Canvas API token needed
+- Token can be regenerated anytime
+- Token-based auth is proven pattern
 
 ---
 
-## 🔧 Code Quality Notes
+## 💾 Database Changes
 
-### Strengths
-- Clean separation of concerns (web, sync, agents, storage)
-- Thread-safe user context management
-- Proper SQL parameterization (no injection vulnerabilities)
-- Graceful error handling with user-friendly messages
-- Efficient database queries
+### REMOVE Tables
+```sql
+courses, assignments, submissions, files,
+pages, modules, module_items, user_sessions
+```
 
-### Improvements Made
-- ✅ Fixed API key mismatch (ANTHROPIC vs OPENAI)
-- ✅ Added comprehensive activity tracking
-- ✅ Cleaned up unused legacy imports
-- ✅ Made quiz limitation explicit and honest
+### ADD Tables
+```sql
+CREATE TABLE ai_completions (
+  id SERIAL PRIMARY KEY,
+  google_id TEXT NOT NULL,
+  course_id INT,
+  assignment_id INT,
+  assignment_title VARCHAR(500),
+  assignment_description TEXT,
+  context_summary TEXT,
+  ai_draft TEXT,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  FOREIGN KEY (google_id) REFERENCES users(google_id)
+);
 
-### Technical Debt (Not Blocking)
-- No type hints (Python code mostly untyped)
-- Limited test coverage
-- No comprehensive logging for debugging
-- Browser extension not yet planned
+CREATE TABLE extension_auth_tokens (
+  id SERIAL PRIMARY KEY,
+  google_id TEXT NOT NULL UNIQUE,
+  auth_token VARCHAR(64) NOT NULL UNIQUE,
+  created_at TIMESTAMP,
+  last_used_at TIMESTAMP,
+  FOREIGN KEY (google_id) REFERENCES users(google_id)
+);
+```
 
----
-
-## 🎯 Next Steps (Post-Beta)
-
-### High Priority:
-1. Beta test with 5-10 users
-2. Monitor sync failures, collect logs
-3. Optimize slow sync times
-4. Polish error messages based on user feedback
-
-### Medium Priority (v1.1):
-1. Add type hints to main modules
-2. Implement comprehensive logging
-3. Add API rate limiting
-4. Improve file download progress
-5. Add data export for FERPA compliance
-
-### Low Priority (v2.0):
-1. Browser extension for in-page quiz solving
-2. Alternative file storage (Supabase Files/S3)
-3. Quiz solving via Canvas Quiz API
-4. User analytics/logging
-5. Rate limiting & abuse prevention
+### MODIFY users Table
+```sql
+ALTER TABLE users DROP COLUMN canvas_api_token;
+ALTER TABLE users DROP COLUMN canvas_linked;
+-- KEEP: google_id, email, name, picture, is_admin, is_banned,
+--       last_accessed_at, created_at
+```
 
 ---
 
-## 📝 Summary for Users
+## 🌐 New API Endpoints
 
-**What Works:**
-- Sign in with Google
-- Connect Canvas account (one-time)
-- Auto-sync assignments and course materials
-- Get AI help with assignments
-- 7-day data retention with auto-cleanup
+### `POST /api/auth/extension`
+Generate or verify extension auth token
+```
+Request: {"user_id": "google_xxx", "action": "generate"}
+Response: {"auth_token": "ext_xxx..."}
+```
 
-**What's Deprecated:**
-- Quiz solving (was too complex, required browser session)
+### `POST /api/assignment/complete`
+Get AI-generated draft for assignment
+```
+Request: {
+  "auth_token": "ext_xxx",
+  "course_id": 123,
+  "assignment_id": 456,
+  "assignment_title": "...",
+  "assignment_description": "...",
+  "context": "..."
+}
+Response: {
+  "success": true,
+  "draft_id": 789,
+  "ai_draft": "Generated response..."
+}
+```
 
-**What to Expect:**
-- First sync: 2-5 minutes
-- Subsequent syncs: ~30 seconds (when triggered)
-- Auto-cleanup: Daily at midnight UTC
-- Data deleted: After 7 days of no activity
+### `GET /api/completions`
+List user's saved AI drafts
+```
+Response: {
+  "completions": [
+    {"id": 789, "assignment_title": "...", "created_at": "..."}
+  ]
+}
+```
+
+### Other Endpoints
+- `GET /api/completions/{id}` - get full draft
+- `DELETE /api/completions/{id}` - delete draft
 
 ---
 
-## 📌 Important Notes for Developers
+## 🧩 Browser Extension MVP
 
-1. **Activity Tracking**: Any user action should call `update_user_activity(google_id)` to keep retention accurate
-2. **Quiz Feature**: Don't try to revive the old quiz solver; design new architecture with browser extension or Canvas API
-3. **Token Management**: Canvas API token is encrypted and stored - never log or print it
-4. **Cleanup Job**: Runs via Flask CLI or background worker - ensure it's scheduled in Railway
-5. **Database**: Uses thread-local context for user isolation - always call `set_user_context()` and `clear_user_context()` properly
+### What Extension Does
+1. Detects when user visits Canvas assignment page
+2. Reads assignment DOM to extract:
+   - Title
+   - Description
+   - Links to course materials
+3. Shows "Get AI Help" button
+4. Sends assignment + context to backend
+5. Displays draft in popup
+6. Provides copy-to-clipboard
+
+### What Extension Does NOT Do (Yet)
+- Auto-fill Canvas form
+- Submit assignment
+- Access Canvas API
+- Solve quizzes
+- Access other Canvas pages
+
+### Tech Stack
+- Manifest v3 (latest Chrome/Firefox standard)
+- Vanilla JavaScript (no frameworks for MVP)
+- Local storage for auth token
+- HTTPS POST to backend
+
+---
+
+## 🔄 Data Flow Example
+
+### User Gets AI Help
+```
+1. User visits canvas.kent.edu/courses/123/assignments/456
+2. Extension detects assignment page
+3. Shows "Get Help" button
+4. User clicks button
+5. Extension reads DOM:
+   - Title: "Assignment 1: Intro to React"
+   - Description: "Build a todo app..."
+   - Context: extracts course materials
+6. Extension calls:
+   POST /api/assignment/complete
+   {
+     "auth_token": "ext_...",
+     "course_id": 123,
+     "assignment_id": 456,
+     "assignment_title": "Assignment 1: Intro to React",
+     "assignment_description": "Build a todo app...",
+     "context": "[relevant course materials]"
+   }
+7. Backend receives request
+8. Verifies auth_token
+9. Calls Claude AI with all context
+10. Stores draft in ai_completions
+11. Returns draft to extension
+12. Extension shows draft in popup
+13. User copies draft
+14. User manually fills Canvas form
+15. User submits to Canvas
+```
+
+---
+
+## 📅 Retention & Cleanup
+
+### 7-Day Inactivity Policy
+- Tracked via `last_accessed_at` on users table
+- AI drafts NOT automatically deleted (user's work)
+- User account deleted if no login for 7 days
+- User can extend by logging in anytime
+
+### Cleanup Job
+- Runs daily (Rails cleanup job)
+- Finds users with no login in 7+ days
+- Deletes user account + all related data
+- Deletes drafts only when deleting user
+
+---
+
+## 🎯 Next Steps
+
+### To Proceed:
+1. ✅ Review audit documents:
+   - `AUDIT_BROWSER_EXTENSION.md`
+   - `IMPLEMENTATION_PLAN.md`
+   - `ARCHITECTURE_SUMMARY.md`
+2. ✅ Approve auth flow (token-based? Yes)
+3. ✅ Approve MVP scope (assignments only? Yes)
+4. Start Phase 1 (database schema)
+
+### Phase 1 Specifically:
+```
+1. Create migration SQL script
+2. Test on staging database
+3. Modify storage/database.py schema references
+4. Run migration
+5. Test users table still works
+```
+
+---
+
+## 📌 Important Notes
+
+### For Developers
+- Extension auth token is different from Canvas API token
+- No server-side Canvas API calls anymore
+- All Canvas data comes from extension, not synced
+- Database is now small (user accounts + drafts only)
+- No more background sync jobs
+
+### For Users
+- One-time setup: copy token from settings to extension
+- Then click "Get Help" on any assignment page
+- Draft appears in extension popup
+- Copy draft and manually submit to Canvas
+- View history on web app dashboard
+
+### For Architecture
+- No passwords or credentials stored on server
+- HTTPS only for extension ↔ backend
+- Token-based auth is stateless
+- Extension is optional (web app still works)
+- Easy to extend with more features later
+
+---
+
+## 🚀 Current Status
+
+**Audit**: ✅ Complete  
+**Architecture**: ✅ Designed  
+**Documentation**: ✅ Ready  
+**Implementation**: ⏸️ Awaiting approval  
+
+**Ready to start Phase 1**: YES
+
+---
+
+## 📚 Reference Documents
+
+- `AUDIT_BROWSER_EXTENSION.md` - Detailed component analysis
+- `IMPLEMENTATION_PLAN.md` - Phase-by-phase breakdown with code
+- `ARCHITECTURE_SUMMARY.md` - High-level overview and decisions
+- This file - Implementation status and guidance
+
