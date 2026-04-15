@@ -237,25 +237,32 @@ api/canvas_client.py    → No Canvas API from backend
 
 ---
 
-## 🔐 Authentication Flow
+## 🔐 Authentication Flow (Session-Based)
 
-### How Extension Proves Identity
-1. User logs into web app (Google OAuth)
-2. Web app generates `extension_auth_token` (random 32 chars)
-3. Web app displays token in `/settings`
-4. User copies token from settings
-5. User opens extension, goes to Options
-6. User pastes token into extension storage
-7. Extension stores locally
-8. Extension includes token in every API request
-9. Backend verifies token → google_id mapping
+### How Extension Works Now (NO TOKEN SETUP!)
 
-### Why This Works
-- Simple to implement
-- User explicitly approves extension
-- No Canvas API token needed
-- Token can be regenerated anytime
-- Token-based auth is proven pattern
+1. User logs into web app with Google OAuth
+2. Browser gets login cookie (automatically)
+3. User clicks extension on Canvas page
+4. Extension makes API request with `credentials: 'include'`
+5. Browser automatically sends login cookie with request
+6. Backend verifies session is valid
+7. AI draft is generated and returned
+8. Done! No manual token setup needed.
+
+### Why Session-Based Auth is Better
+✅ **No token copy/paste** - Setup is instant, just use it
+✅ **Seamless integration** - Works if user is already logged in
+✅ **More secure** - Session-based, encrypted cookies
+✅ **Better UX** - Just click the icon, no configuration
+✅ **Simpler code** - Less token management complexity
+✅ **Standard pattern** - How most web apps work
+
+### What Changed
+- **Removed**: Token generation, token storage, settings page, auth_token parameter
+- **Added**: `credentials: 'include'` in extension API calls
+- **Backend**: All endpoints now use `@login_required` instead of token validation
+- **Result**: One-click setup instead of multi-step token setup
 
 ---
 
@@ -493,7 +500,27 @@ without time zone but expression is of type text
   - `storage/users.py:347` - `verify_extension_auth_token()`
 - Legacy TEXT timestamp columns left unchanged
 
-### 2. Enhanced Extension with Multi-Page Canvas Detection (NEW)
+### 2. Switched to Session-Based Authentication (MAJOR IMPROVEMENT)
+
+**Problem**: Token-based auth required manual copy/paste setup - poor UX
+
+**Solution**: Use browser session cookies instead of tokens
+
+**Changes**:
+- ✅ Removed `/api/auth/extension` endpoint (no token generation)
+- ✅ All extension APIs now use `@login_required` (session-based)
+- ✅ Extension makes requests with `credentials: 'include'`
+- ✅ Browser automatically sends login cookies
+- ✅ Removed token settings page, storage, management code
+- ✅ Simplified background.js, popup.js
+
+**Result**: 
+- **No setup required** - Just log in to web app, click extension
+- **No tokens** - Uses encrypted session cookies
+- **Better security** - Standard session-based auth
+- **Simpler code** - Removed 50+ lines of token management
+
+### 3. Enhanced Extension with Multi-Page Canvas Detection (NEW)
 
 **Problem**: Extension was too basic - didn't handle quizzes, no debug states
 
