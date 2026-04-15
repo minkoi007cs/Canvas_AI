@@ -16,19 +16,48 @@
       <button id="setup-btn" class="btn btn-primary">Go to Settings</button>
     </div>
 
-    <!-- No assignment detected state -->
+    <!-- No supported page detected -->
     <div id="no-assignment" class="state hidden">
       <div class="icon">📄</div>
-      <h2>No Assignment Found</h2>
-      <p>This tool works on Canvas assignment pages. Please navigate to an assignment and try again.</p>
-      <p class="hint">Supported pages: assignment details, quiz pages</p>
+      <h2>Not on a Supported Page</h2>
+      <p>This extension works on Canvas assignment and quiz pages.</p>
+      <div class="supported-pages">
+        <h4>Supported Pages:</h4>
+        <ul>
+          <li>Assignment submission pages</li>
+          <li>Quiz intro pages (shows "Take the Quiz")</li>
+          <li>Quiz question pages</li>
+        </ul>
+      </div>
     </div>
 
-    <!-- Loading state -->
+    <!-- Quiz intro detected state -->
+    <div id="quiz-intro-detected" class="state hidden">
+      <div class="icon">📋</div>
+      <h2 id="quiz-title">Quiz Found</h2>
+      <p id="quiz-info" class="quiz-info">Please click "Take the Quiz" to start answering questions. The AI helper will work once you're on a question page.</p>
+      <p class="hint">💡 This is the quiz intro. Start the quiz to begin.</p>
+    </div>
+
+    <!-- Quiz question detected state -->
+    <div id="quiz-question-detected" class="state hidden">
+      <div class="spinner"></div>
+      <h2>Quiz Question Detected</h2>
+      <p id="loading-message">Analyzing question and generating answer...</p>
+    </div>
+
+    <!-- Assignment detected state -->
+    <div id="assignment-detected" class="state hidden">
+      <div class="spinner"></div>
+      <h2>Assignment Detected</h2>
+      <p id="loading-message">Analyzing assignment and generating draft...</p>
+    </div>
+
+    <!-- Loading state (generic) -->
     <div id="loading" class="state hidden">
       <div class="spinner"></div>
       <h2>Generating Draft...</h2>
-      <p id="loading-message">Analyzing assignment and generating AI draft</p>
+      <p id="loading-message">Analyzing content and generating AI draft</p>
     </div>
 
     <!-- Success state (showing draft) -->
@@ -44,7 +73,7 @@
 
       <div class="actions">
         <button id="copy-btn" class="btn btn-primary">Copy to Clipboard</button>
-        <button id="view-full-btn" class="btn btn-secondary">View Full Draft</button>
+        <button id="view-full-btn" class="btn btn-secondary">View Full</button>
       </div>
 
       <p class="hint">💡 Review before submitting to Canvas. Make edits as needed.</p>

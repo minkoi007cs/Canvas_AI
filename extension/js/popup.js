@@ -1,29 +1,52 @@
 /**
  * Popup script - Handles the UI and interaction in the extension popup
+ * Supports: Assignments, Quiz intro, Quiz questions
  */
 
 const API_BASE = 'https://canvas-ai.herokuapp.com';
 let currentDraft = null;
+let currentPageType = null;
 
 // State management
 async function initialize() {
   const token = await getStoredToken();
 
+  // Show not authenticated state
   if (!token) {
     showState('not-authenticated');
     return;
   }
 
-  // Check if we can get assignment data from current page
-  const assignmentData = await getAssignmentData();
+  // Check if we're on a supported Canvas page
+  const pageData = await getPageData();
 
-  if (!assignmentData) {
+  if (!pageData) {
     showState('no-assignment');
     return;
   }
 
-  // Proceed to generate draft
-  generateDraft(token, assignmentData);
+  // Show page type specific state
+  currentPageType = pageData.pageType;
+
+  switch (pageData.pageType) {
+    case 'assignment_submission':
+      showState('assignment-detected');
+      generateDraft(token, pageData);
+      break;
+
+    case 'quiz_intro':
+      showState('quiz-intro-detected');
+      displayQuizIntroInfo(pageData);
+      break;
+
+    case 'quiz_question':
+      showState('quiz-question-detected');
+      generateDraft(token, pageData);
+      break;
+
+    default:
+      showState('no-assignment');
+  }
 }
 
 // Get auth token from storage
@@ -32,10 +55,9 @@ async function getStoredToken() {
   return data.authToken || null;
 }
 
-// Get assignment data from page via content script
-async function getAssignmentData() {
+// Get page data from content script
+async function getPageData() {
   try {
-    // Send message to content script to get assignment data
     const response = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!response || response.length === 0) {
       return null;
@@ -46,13 +68,34 @@ async function getAssignmentData() {
 
     return message || null;
   } catch (e) {
-    console.error('Error getting assignment data:', e);
+    console.error('Error getting page data:', e);
     return null;
   }
 }
 
+// Display quiz intro info
+function displayQuizIntroInfo(pageData) {
+  const titleEl = document.querySelector('#quiz-title');
+  const infoEl = document.querySelector('#quiz-info');
+
+  if (titleEl) {
+    titleEl.textContent = pageData.title || 'Quiz';
+  }
+
+  if (infoEl) {
+    let info = '';
+    if (pageData.questionCount) {
+      info += `${pageData.questionCount} questions`;
+    }
+    if (pageData.instructions) {
+      info += `\n${pageData.instructions.substring(0, 100)}...`;
+    }
+    infoEl.textContent = info || 'Please start the quiz to answer questions';
+  }
+}
+
 // Generate AI draft
-async function generateDraft(token, assignmentData) {
+async function generateDraft(token, pageData) {
   showState('loading');
 
   try {
@@ -64,12 +107,12 @@ async function generateDraft(token, assignmentData) {
       },
       body: JSON.stringify({
         auth_token: token,
-        assignment_title: assignmentData.title || 'Untitled',
-        assignment_description: assignmentData.description || '',
-        context: assignmentData.context || '',
-        course_name: assignmentData.courseName || 'Unknown Course',
-        course_id: assignmentData.courseId,
-        assignment_id: assignmentData.assignmentId
+        assignment_title: pageData.title || 'Untitled',
+        assignment_description: getDescriptionForPageType(pageData),
+        context: pageData.context || '',
+        course_name: pageData.courseName || 'Unknown Course',
+        course_id: pageData.courseId,
+        assignment_id: pageData.assignmentId || pageData.quizId
       })
     });
 
@@ -80,10 +123,11 @@ async function generateDraft(token, assignmentData) {
 
     const data = await response.json();
     currentDraft = {
-      title: assignmentData.title,
-      description: assignmentData.description,
+      title: pageData.title,
+      description: getDescriptionForPageType(pageData),
       content: data.draft,
-      draftId: data.draft_id
+      draftId: data.draft_id,
+      pageType: pageData.pageType
     };
 
     showState('success');
@@ -96,11 +140,36 @@ async function generateDraft(token, assignmentData) {
   }
 }
 
+// Get description based on page type
+function getDescriptionForPageType(pageData) {
+  switch (pageData.pageType) {
+    case 'assignment_submission':
+      return pageData.description || '';
+
+    case 'quiz_question':
+      return `Question: ${pageData.text || ''}\n${pageData.options ? 'Options: ' + pageData.options.map(o => o.text).join(', ') : ''}`;
+
+    case 'quiz_intro':
+      return pageData.instructions || '';
+
+    default:
+      return '';
+  }
+}
+
 // Display draft in popup
 function displayDraft(draft) {
-  document.getElementById('assignment-title').textContent = draft.title || 'Assignment';
-  document.getElementById('draft-content').textContent =
-    draft.content.substring(0, 300) + (draft.content.length > 300 ? '...' : '');
+  const titleEl = document.getElementById('assignment-title');
+  const contentEl = document.getElementById('draft-content');
+
+  if (titleEl) {
+    titleEl.textContent = draft.title || 'Draft';
+  }
+
+  if (contentEl) {
+    const preview = draft.content.substring(0, 300);
+    contentEl.textContent = preview + (draft.content.length > 300 ? '...' : '');
+  }
 }
 
 // Copy draft to clipboard
@@ -115,7 +184,6 @@ function copyToClipboard(text) {
 
 // Show notification
 function showNotification(message, type = 'success') {
-  // You could implement a toast notification here
   console.log(`[${type}] ${message}`);
 }
 
@@ -124,6 +192,7 @@ function showState(stateName) {
   document.querySelectorAll('.state').forEach(el => {
     el.classList.add('hidden');
   });
+
   const state = document.getElementById(stateName);
   if (state) {
     state.classList.remove('hidden');
