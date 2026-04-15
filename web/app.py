@@ -773,63 +773,16 @@ def api_quiz(assignment_id):
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-# ── Extension API Authentication ──────────────────────────────────────────────
-
-def extension_auth_required(f):
-    """Decorator: Validate extension auth token from header or query param."""
-    @functools.wraps(f)
-    def wrapped(*args, **kwargs):
-        # Get token from Authorization header or token query param
-        auth_header = request.headers.get("Authorization", "")
-        token = None
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-        else:
-            token = request.args.get("token") or request.get_json().get("auth_token") if request.is_json else None
-
-        if not token:
-            return jsonify({"error": "Missing extension auth token"}), 401
-
-        # Validate token and get google_id
-        from storage.users import verify_extension_auth_token
-        google_id = verify_extension_auth_token(token)
-        if not google_id:
-            return jsonify({"error": "Invalid or expired extension auth token"}), 401
-
-        # Set up user context
-        _setup_user_context(google_id)
-        request.google_id = google_id  # Make google_id available to handler
-        return f(*args, **kwargs)
-    return wrapped
-
-
-# ── Extension API Endpoints ────────────────────────────────────────────────────
-
-@app.route("/api/auth/extension", methods=["POST"])
-@login_required
-def api_generate_extension_token():
-    """Generate a new extension auth token for the logged-in user."""
-    google_id = session.get("google_id")
-    if not google_id:
-        return jsonify({"error": "Not logged in"}), 401
-
-    try:
-        from storage.users import generate_extension_auth_token
-        token = generate_extension_auth_token(google_id)
-        return jsonify({"token": token}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# ── Extension API Endpoints (Session-Based Auth) ──────────────────────────────
 
 @app.route("/api/assignment/complete", methods=["POST"])
-@extension_auth_required
+@login_required
 def api_complete_assignment():
     """
     Accept assignment context from extension and return AI draft.
 
     Request body:
     {
-        "auth_token": "ext_xxx...",
         "assignment_title": "Assignment 1",
         "assignment_description": "...",
         "context": "Optional course materials context",
@@ -842,7 +795,7 @@ def api_complete_assignment():
         "draft_id": 123
     }
     """
-    google_id = request.google_id
+    google_id = session.get("google_id")
     data = request.get_json() or {}
 
     assignment_title = data.get("assignment_title", "Untitled Assignment").strip()
@@ -890,10 +843,10 @@ def api_complete_assignment():
 
 
 @app.route("/api/completions", methods=["GET"])
-@extension_auth_required
+@login_required
 def api_list_completions():
     """List user's AI draft completions (paginated)."""
-    google_id = request.google_id
+    google_id = session.get("google_id")
 
     limit = request.args.get("limit", 20, type=int)
     offset = request.args.get("offset", 0, type=int)
@@ -921,10 +874,10 @@ def api_list_completions():
 
 
 @app.route("/api/completions/<int:completion_id>", methods=["GET"])
-@extension_auth_required
+@login_required
 def api_get_completion(completion_id):
     """Retrieve a specific AI draft completion."""
-    google_id = request.google_id
+    google_id = session.get("google_id")
 
     try:
         from storage.database import get_completion
@@ -946,10 +899,10 @@ def api_get_completion(completion_id):
 
 
 @app.route("/api/completions/<int:completion_id>", methods=["DELETE"])
-@extension_auth_required
+@login_required
 def api_delete_completion(completion_id):
     """Delete a specific AI draft completion."""
-    google_id = request.google_id
+    google_id = session.get("google_id")
 
     try:
         from storage.database import get_completion, delete_completion

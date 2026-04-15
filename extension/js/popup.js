@@ -1,6 +1,6 @@
 /**
- * Popup script - Handles the UI and interaction in the extension popup
- * Supports: Assignments, Quiz intro, Quiz questions
+ * Popup script - Uses browser session (cookies) for authentication
+ * No token setup needed!
  */
 
 const API_BASE = 'https://canvas-ai.herokuapp.com';
@@ -9,14 +9,6 @@ let currentPageType = null;
 
 // State management
 async function initialize() {
-  const token = await getStoredToken();
-
-  // Show not authenticated state
-  if (!token) {
-    showState('not-authenticated');
-    return;
-  }
-
   // Check if we're on a supported Canvas page
   const pageData = await getPageData();
 
@@ -31,7 +23,7 @@ async function initialize() {
   switch (pageData.pageType) {
     case 'assignment_submission':
       showState('assignment-detected');
-      generateDraft(token, pageData);
+      generateDraft(pageData);
       break;
 
     case 'quiz_intro':
@@ -41,18 +33,12 @@ async function initialize() {
 
     case 'quiz_question':
       showState('quiz-question-detected');
-      generateDraft(token, pageData);
+      generateDraft(pageData);
       break;
 
     default:
       showState('no-assignment');
   }
-}
-
-// Get auth token from storage
-async function getStoredToken() {
-  const data = await chrome.storage.local.get(['authToken']);
-  return data.authToken || null;
 }
 
 // Get page data from content script
@@ -94,19 +80,18 @@ function displayQuizIntroInfo(pageData) {
   }
 }
 
-// Generate AI draft
-async function generateDraft(token, pageData) {
+// Generate AI draft using session authentication
+async function generateDraft(pageData) {
   showState('loading');
 
   try {
     const response = await fetch(`${API_BASE}/api/assignment/complete`, {
       method: 'POST',
+      credentials: 'include', // Include cookies for session auth
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        auth_token: token,
         assignment_title: pageData.title || 'Untitled',
         assignment_description: getDescriptionForPageType(pageData),
         context: pageData.context || '',
@@ -118,6 +103,9 @@ async function generateDraft(token, pageData) {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        throw new Error('Please log in to the web app first');
+      }
       throw new Error(error.error || `API error: ${response.status}`);
     }
 
@@ -211,10 +199,6 @@ function closeModal() {
 }
 
 // Event listeners
-document.getElementById('setup-btn')?.addEventListener('click', () => {
-  chrome.runtime.openOptionsPage();
-});
-
 document.getElementById('close-btn')?.addEventListener('click', () => {
   window.close();
 });
