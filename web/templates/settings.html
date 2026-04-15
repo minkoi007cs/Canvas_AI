@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Extension Setup{% endblock %}
+
+{% block topbar %}
+  <span class="text-gray-300 font-medium">Settings</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-6 py-8">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">Extension Setup</h1>
+    <p class="text-gray-500 text-sm">Connect your browser extension to start generating AI drafts</p>
+  </div>
+
+  <!-- Auth Token Section -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+    <div class="flex items-start justify-between mb-6">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-800 mb-2">Your Auth Token</h2>
+        <p class="text-sm text-gray-500 max-w-md">
+          Copy this token and paste it into your browser extension settings. This token authenticates your extension with our API.
+        </p>
+      </div>
+    </div>
+
+    <!-- Token display -->
+    <div class="relative">
+      <div class="flex items-center gap-3 bg-gray-50 border border-gray-300 rounded-lg px-4 py-3 font-mono text-sm break-all">
+        <input type="text" id="token-input" readonly
+               value="{{ auth_token or '' }}"
+               class="flex-1 bg-transparent border-0 focus:ring-0 outline-none select-all"/>
+        <button onclick="copyToken()" class="flex-shrink-0 p-2 hover:bg-gray-200 rounded transition-colors">
+          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Regenerate button -->
+    <div class="mt-6 pt-6 border-t border-gray-200">
+      <p class="text-sm text-gray-600 mb-3">
+        Need a new token?
+      </p>
+      <button id="regenerate-btn" onclick="regenerateToken()"
+              class="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-medium transition-colors">
+        Generate New Token
+      </button>
+      <p class="text-xs text-gray-400 mt-2">
+        Your old token will stop working when you generate a new one.
+      </p>
+    </div>
+  </div>
+
+  <!-- Setup Instructions -->
+  <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+    <h3 class="font-semibold text-blue-900 mb-4">How to Connect Your Extension</h3>
+    <ol class="space-y-3 text-sm text-blue-800">
+      <li class="flex gap-3">
+        <span class="flex-shrink-0 w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center font-semibold text-xs">1</span>
+        <span>Copy your auth token above (click the copy button)</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="flex-shrink-0 w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center font-semibold text-xs">2</span>
+        <span>Open your browser and navigate to any Canvas assignment page</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="flex-shrink-0 w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center font-semibold text-xs">3</span>
+        <span>Click the extension icon in your browser toolbar</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="flex-shrink-0 w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center font-semibold text-xs">4</span>
+        <span>Go to Extension Settings → paste your auth token</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="flex-shrink-0 w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center font-semibold text-xs">5</span>
+        <span>Click Save. You're ready to use!</span>
+      </li>
+    </ol>
+  </div>
+
+  <!-- FAQ -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <h3 class="font-semibold text-gray-800 mb-4">Frequently Asked Questions</h3>
+
+    <div class="space-y-6">
+      <!-- Q1 -->
+      <div>
+        <h4 class="font-medium text-gray-800 text-sm mb-2">Is my token secure?</h4>
+        <p class="text-sm text-gray-600">
+          Yes. Your token is encrypted at rest and only transmitted over HTTPS. It authenticates your extension with our API, similar to how an API key works. Never share your token with anyone else.
+        </p>
+      </div>
+
+      <!-- Q2 -->
+      <div>
+        <h4 class="font-medium text-gray-800 text-sm mb-2">What can the extension do with my token?</h4>
+        <p class="text-sm text-gray-600">
+          Your extension can submit assignment details to get AI-generated drafts, and view/delete your saved drafts. It cannot access your Canvas account or generate new authentication tokens.
+        </p>
+      </div>
+
+      <!-- Q3 -->
+      <div>
+        <h4 class="font-medium text-gray-800 text-sm mb-2">What happens if I lose my token?</h4>
+        <p class="text-sm text-gray-600">
+          You can always generate a new token here. The old token will immediately become invalid, and you'll need to update it in your extension settings.
+        </p>
+      </div>
+
+      <!-- Q4 -->
+      <div>
+        <h4 class="font-medium text-gray-800 text-sm mb-2">Can I use one token for multiple browsers?</h4>
+        <p class="text-sm text-gray-600">
+          Yes, but all extensions using the same token will share your draft history. For better organization, you can generate separate tokens for different devices.
+        </p>
+      </div>
+
+      <!-- Q5 -->
+      <div>
+        <h4 class="font-medium text-gray-800 text-sm mb-2">How do I revoke access?</h4>
+        <p class="text-sm text-gray-600">
+          Generate a new token to revoke the old one, or simply uninstall the extension. Your drafts will remain in your history, but the extension won't be able to access the API.
+        </p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% block scripts %}
+<script>
+function copyToken() {
+  const input = document.getElementById('token-input');
+  const text = input.value;
+
+  if (!text) {
+    showToast('No token available', 'error');
+    return;
+  }
+
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Token copied to clipboard!', 'success');
+  }).catch(() => {
+    showToast('Failed to copy', 'error');
+  });
+}
+
+async function regenerateToken() {
+  if (!confirm('This will create a new token. Your old token will stop working. Continue?')) {
+    return;
+  }
+
+  const btn = document.getElementById('regenerate-btn');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+
+  try {
+    const res = await fetch('/api/auth/extension', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.error || 'Failed to generate token', 'error');
+      return;
+    }
+
+    const data = await res.json();
+    document.getElementById('token-input').value = data.token;
+    showToast('New token generated! Copy it and update your extension.', 'success');
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+</script>
+{% endblock %}
+
+{% endblock %}

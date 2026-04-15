@@ -353,32 +353,70 @@ def _current_user():
 @app.route("/")
 @login_required
 def dashboard():
-    from storage.database import get_courses, get_conn, get_current_google_id
-    from storage.users import update_user_activity
+    """New dashboard: Show AI draft history instead of Canvas courses."""
+    from storage.database import get_user_completions, get_conn
+    from storage.users import update_user_activity, get_extension_auth_token
+    from datetime import datetime, timedelta
 
     # Track user activity
     google_id = session.get("google_id")
     if google_id:
         update_user_activity(google_id)
 
-    courses = get_courses()
-    gid = get_current_google_id()
-    for c in courses:
-        c["color"] = course_color(c["id"])
-        conn = get_conn()
-        c["assignment_count"] = conn.execute(
-            "SELECT COUNT(*) as n FROM assignments WHERE google_id=? AND course_id=?",
-            (gid, c["id"])
-        ).fetchone()["n"]
-        c["upcoming"] = conn.execute("""
-            SELECT COUNT(*) as n FROM assignments a
-            LEFT JOIN submissions s ON s.assignment_id = a.id AND s.google_id = a.google_id
-            WHERE a.google_id=? AND a.course_id=?
-            AND (s.id IS NULL OR s.workflow_state NOT IN ('graded','submitted'))
-            AND a.due_at IS NOT NULL
-        """, (gid, c["id"])).fetchone()["n"]
-        conn.close()
-    return render_template("dashboard.html", courses=courses, current_user=_current_user())
+    # Get recent drafts (limit to 5 for dashboard)
+    completions, total = get_user_completions(limit=5, offset=0)
+
+    # Count drafts from this week
+    conn = get_conn()
+    week_ago = datetime.now() - timedelta(days=7)
+    week_result = conn.execute(
+        "SELECT COUNT(*) as cnt FROM ai_completions WHERE google_id = %s AND created_at >= %s",
+        (google_id, week_ago.isoformat())
+    ).fetchone()
+    week_completions = week_result['cnt'] if week_result else 0
+    conn.close()
+
+    has_more = len(completions) > 5
+
+    return render_template(
+        "dashboard_new.html",
+        completions=completions,
+        total_completions=total,
+        week_completions=week_completions,
+        has_more=has_more,
+        current_user=_current_user()
+    )
+
+
+@app.route("/settings")
+@login_required
+def settings():
+    """Extension setup page: Show auth token and instructions."""
+    from storage.users import get_extension_auth_token, generate_extension_auth_token, update_user_activity
+
+    google_id = session.get("google_id")
+    if google_id:
+        update_user_activity(google_id)
+
+    # Get or generate auth token
+    token = get_extension_auth_token(google_id)
+    if not token:
+        token = generate_extension_auth_token(google_id)
+
+    return render_template("settings.html", auth_token=token, current_user=_current_user())
+
+
+@app.route("/drafts")
+@login_required
+def drafts_page():
+    """Full draft history page."""
+    from storage.users import update_user_activity
+
+    google_id = session.get("google_id")
+    if google_id:
+        update_user_activity(google_id)
+
+    return render_template("drafts.html", current_user=_current_user())
 
 
 @app.route("/courses/<int:course_id>")

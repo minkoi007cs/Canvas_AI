@@ -1,10 +1,10 @@
 # CANVAS App - Browser Extension Architecture
 
-## Status: Phase 2 Complete - Backend API Implemented
+## Status: Phase 3 Complete - Web App UI Refactored
 
-**Updated**: 2026-04-15 (Phase 2 Complete)
-**Current Phase**: 2/6 ✅ Complete
-**Next Phase**: 3 - Web App UI Refactor
+**Updated**: 2026-04-15 (Phase 3 Complete)
+**Current Phase**: 3/6 ✅ Complete
+**Next Phase**: 4 - Browser Extension MVP
 
 ---
 
@@ -131,12 +131,29 @@ DELETE /api/completions/{id}            → Delete draft
 
 **Authentication**: All new endpoints use extension token validation via `extension_auth_required` decorator
 
-### Phase 3: Web App UI (2.5 hours)
-- Remove Canvas token setup page
-- Remove course/assignment browsing
-- Add `/settings` page (show extension token)
-- Add `/drafts` page (draft history)
-- Modify `/` dashboard (show recent drafts)
+### Phase 3: Web App UI ✅ COMPLETE
+**Status**: ✅ Done (2 hours)
+
+Completed:
+- ✅ Refactored `/` dashboard to show recent AI drafts instead of Canvas courses
+- ✅ Created `/settings` page (extension token setup with instructions)
+- ✅ Created `/drafts` page (full draft history with search, filter, pagination)
+- ✅ Updated navigation bar (added Settings link)
+- ✅ Removed Canvas token entry requirements
+- ✅ Updated dashboard route to fetch and display ai_completions
+- ✅ Added statistics (total drafts, this week's count)
+
+**New Pages**:
+```
+GET    /                               → Dashboard (recent AI drafts)
+GET    /settings                       → Extension setup (show token, instructions)
+GET    /drafts                         → Full draft history (search, filter, pagination)
+```
+
+**Deprecated but Kept**:
+- Canvas token setup (still works, not linked from nav)
+- Course browsing pages (still accessible)
+- Assignment viewer (still accessible)
 
 ### Phase 4: Browser Extension (5 hours)
 - Create Manifest v3 extension
