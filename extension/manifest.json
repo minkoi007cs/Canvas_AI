@@ -20,7 +20,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Canvas AI Helper",
+    "default_title": "Canvas AI Helper - Click on Canvas page",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -28,7 +28,6 @@
       "128": "icons/icon128.png"
     }
   },
-  "options_page": "settings.html",
   "background": {
     "service_worker": "js/background.js"
   },
