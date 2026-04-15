@@ -299,3 +299,82 @@ def user_screenshots_dir(google_id: str) -> Path:
     d = user_data_dir(google_id) / "screenshots"
     d.mkdir(exist_ok=True)
     return d
+
+
+# ── EXTENSION AUTHENTICATION ────────────────────────────────────────────────────
+
+def generate_extension_auth_token(google_id: str) -> str:
+    """
+    Generate a new extension auth token for user.
+    If user already has a token, it will be replaced.
+    Returns the token string.
+    """
+    import secrets
+    token = secrets.token_hex(32)  # 64-character hex string
+
+    conn = get_users_conn()
+    _exec(conn, """
+        INSERT INTO extension_auth_tokens (google_id, auth_token, created_at)
+        VALUES (?, ?, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        ON CONFLICT(google_id) DO UPDATE SET
+            auth_token = EXCLUDED.auth_token,
+            created_at = EXCLUDED.created_at
+    """, (google_id, token))
+    conn.commit()
+    conn.close()
+
+    return token
+
+
+def verify_extension_auth_token(token: str) -> str or None:
+    """
+    Verify an extension auth token.
+    Returns the google_id if valid, None if invalid.
+    Updates last_used_at timestamp on success.
+    """
+    conn = get_users_conn()
+    cur = _exec(conn, """
+        SELECT google_id FROM extension_auth_tokens
+        WHERE auth_token = ?
+    """, (token,))
+    row = cur.fetchone()
+
+    if row:
+        google_id = row["google_id"]
+        # Update last_used_at
+        _exec(conn, """
+            UPDATE extension_auth_tokens
+            SET last_used_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
+            WHERE auth_token = ?
+        """, (token,))
+        conn.commit()
+        conn.close()
+        return google_id
+
+    conn.close()
+    return None
+
+
+def get_extension_auth_token(google_id: str) -> str or None:
+    """Get the current extension auth token for a user."""
+    conn = get_users_conn()
+    cur = _exec(conn, """
+        SELECT auth_token FROM extension_auth_tokens
+        WHERE google_id = ?
+    """, (google_id,))
+    row = cur.fetchone()
+    conn.close()
+
+    return row["auth_token"] if row else None
+
+
+def delete_extension_auth_token(google_id: str) -> bool:
+    """Delete (revoke) a user's extension auth token."""
+    conn = get_users_conn()
+    _exec(conn, """
+        DELETE FROM extension_auth_tokens
+        WHERE google_id = ?
+    """, (google_id,))
+    conn.commit()
+    conn.close()
+    return True
