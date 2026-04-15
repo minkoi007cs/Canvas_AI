@@ -315,7 +315,7 @@ def generate_extension_auth_token(google_id: str) -> str:
     conn = get_users_conn()
     _exec(conn, """
         INSERT INTO extension_auth_tokens (google_id, auth_token, created_at)
-        VALUES (?, ?, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        VALUES (?, ?, NOW())
         ON CONFLICT(google_id) DO UPDATE SET
             auth_token = EXCLUDED.auth_token,
             created_at = EXCLUDED.created_at
@@ -344,7 +344,7 @@ def verify_extension_auth_token(token: str) -> str or None:
         # Update last_used_at
         _exec(conn, """
             UPDATE extension_auth_tokens
-            SET last_used_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
+            SET last_used_at = NOW()
             WHERE auth_token = ?
         """, (token,))
         conn.commit()
