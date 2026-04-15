@@ -472,6 +472,38 @@ Response: {
 
 ---
 
+## 🐛 Bug Fixes
+
+### PostgreSQL Timestamp Type Mismatch (Phase 5)
+
+**Issue Found**: Local testing revealed type mismatch in extension_auth_tokens table
+```
+psycopg2.errors.DatatypeMismatch: column "created_at" is of type timestamp 
+without time zone but expression is of type text
+```
+
+**Root Cause**: 
+- New extension tables (`extension_auth_tokens`, `ai_completions`) use real PostgreSQL `TIMESTAMP` columns
+- But insert/update statements were using `to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')`, which returns TEXT
+- This incompatibility only appears with proper PostgreSQL, not SQLite (legacy)
+
+**Affected Locations**:
+- `storage/users.py:318` - `generate_extension_auth_token()` inserting into `created_at`
+- `storage/users.py:347` - `verify_extension_auth_token()` updating `last_used_at`
+
+**Fix Applied**:
+- Changed `to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')` → `NOW()` 
+- Uses native PostgreSQL TIMESTAMP type conversion
+- Legacy `users` and `user_sessions` tables (TEXT timestamps) left unchanged
+- `ai_completions` functions already correct (used `NOW()` directly)
+
+**Verification**:
+- ✅ Syntax check: All Python files compile cleanly
+- ✅ Schema consistency: New tables use TIMESTAMP, legacy tables use TEXT
+- ✅ No unintended changes to legacy code
+
+---
+
 ## 🚀 Current Status
 
 **Audit**: ✅ Complete  
