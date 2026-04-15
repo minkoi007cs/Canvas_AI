@@ -472,9 +472,9 @@ Response: {
 
 ---
 
-## 🐛 Bug Fixes
+## 🐛 Bug Fixes & Enhancements (Phase 5)
 
-### PostgreSQL Timestamp Type Mismatch (Phase 5)
+### 1. PostgreSQL Timestamp Type Mismatch (FIXED)
 
 **Issue Found**: Local testing revealed type mismatch in extension_auth_tokens table
 ```
@@ -483,24 +483,69 @@ without time zone but expression is of type text
 ```
 
 **Root Cause**: 
-- New extension tables (`extension_auth_tokens`, `ai_completions`) use real PostgreSQL `TIMESTAMP` columns
+- New extension tables use real PostgreSQL `TIMESTAMP` columns
 - But insert/update statements were using `to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')`, which returns TEXT
 - This incompatibility only appears with proper PostgreSQL, not SQLite (legacy)
 
-**Affected Locations**:
-- `storage/users.py:318` - `generate_extension_auth_token()` inserting into `created_at`
-- `storage/users.py:347` - `verify_extension_auth_token()` updating `last_used_at`
-
 **Fix Applied**:
-- Changed `to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')` → `NOW()` 
-- Uses native PostgreSQL TIMESTAMP type conversion
-- Legacy `users` and `user_sessions` tables (TEXT timestamps) left unchanged
-- `ai_completions` functions already correct (used `NOW()` directly)
+- Changed `to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')` → `NOW()` in:
+  - `storage/users.py:318` - `generate_extension_auth_token()`
+  - `storage/users.py:347` - `verify_extension_auth_token()`
+- Legacy TEXT timestamp columns left unchanged
+
+### 2. Enhanced Extension with Multi-Page Canvas Detection (NEW)
+
+**Problem**: Extension was too basic - didn't handle quizzes, no debug states
+
+**Solution**: Intelligent page detection and type-specific extractors
+
+**New Capabilities**:
+
+1. **Page Type Detection**:
+   - ✅ Assignment submission pages (`/courses/{id}/assignments/{id}`)
+   - ✅ Quiz intro pages (shows "Take the Quiz" button)
+   - ✅ Quiz question pages (extracting question + options)
+   - ✅ Returns "unknown" for unsupported pages with helpful error
+
+2. **Type-Specific Extractors**:
+   - **Assignment**: title, description, due date, attachments, course info
+   - **Quiz Intro**: title, question count, instructions, start status
+   - **Quiz Question**: question text, options, type detection (multiple_choice, text_entry, dropdown, matching)
+
+3. **Question Type Detection**:
+   - Multiple choice (radio buttons) ✅
+   - Text entry (textarea/input) ✅
+   - Dropdowns (select elements) ✅
+   - Matching (detects but UI only for now)
+   - Checkboxes (multiple select) ✅
+
+4. **Enhanced Popup UI States**:
+   - "No token configured" - Setup required
+   - "Not on supported page" - Shows supported types
+   - "Quiz found - click Take the Quiz" - Quiz intro detected
+   - "Quiz question detected" - Ready to analyze
+   - "Assignment detected" - Generating draft
+   - Error states with helpful messages
+
+5. **Debug Support**:
+   - Console commands: `window.detectPageType()`, `window.extractCanvasPageData()`
+   - Clear state messages in popup
+   - DevTools-friendly error reporting
+   - TESTING.md with complete debugging guide
+
+**Files Modified**:
+- `extension/js/content.js` - Rewritten with page classifier and extractors
+- `extension/js/popup.js` - Enhanced state management and messaging
+- `extension/popup.html` - Added new states and debug info
+- `extension/css/popup.css` - Added quiz info styling
+- `extension/TESTING.md` - New testing and debugging guide
 
 **Verification**:
-- ✅ Syntax check: All Python files compile cleanly
-- ✅ Schema consistency: New tables use TIMESTAMP, legacy tables use TEXT
-- ✅ No unintended changes to legacy code
+- ✅ All page types detect correctly
+- ✅ Extractors handle multiple CSS selectors
+- ✅ Debug states clearly indicate what extension sees
+- ✅ Error messages guide user to solutions
+- ✅ Backward compatible with existing API
 
 ---
 
