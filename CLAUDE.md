@@ -1,10 +1,10 @@
 # CANVAS App - Browser Extension Architecture
 
-## Status: Phase 3 Complete - Web App UI Refactored
+## Status: Phase 4 Complete - Browser Extension MVP
 
-**Updated**: 2026-04-15 (Phase 3 Complete)
-**Current Phase**: 3/6 ✅ Complete
-**Next Phase**: 4 - Browser Extension MVP
+**Updated**: 2026-04-15 (Phase 4 Complete)
+**Current Phase**: 4/6 ✅ Complete
+**Next Phase**: 5 - Integration Testing & Deployment
 
 ---
 
@@ -155,12 +155,45 @@ GET    /drafts                         → Full draft history (search, filter, p
 - Course browsing pages (still accessible)
 - Assignment viewer (still accessible)
 
-### Phase 4: Browser Extension (5 hours)
-- Create Manifest v3 extension
-- Build popup UI (show draft)
-- Create content script (read assignment page)
-- Implement auth token management
-- Add API communication
+### Phase 4: Browser Extension MVP ✅ COMPLETE
+**Status**: ✅ Done (4 hours)
+
+Completed:
+- ✅ Created Manifest V3 extension structure
+- ✅ Built popup UI for draft display and interaction
+- ✅ Created content script to read Canvas assignment pages
+- ✅ Implemented auth token storage and management
+- ✅ Added API communication with backend
+- ✅ Created settings page for token configuration
+- ✅ Implemented token validation and error handling
+- ✅ Added draft copying to clipboard functionality
+
+**Extension Files**:
+```
+extension/
+├── manifest.json         ← Manifest V3 config
+├── popup.html            ← Draft popup UI
+├── settings.html         ← Settings/options page
+├── js/
+│   ├── popup.js         ← Popup logic + API calls
+│   ├── content.js       ← Canvas page DOM reading
+│   ├── background.js    ← Service worker + storage
+│   └── settings.js      ← Settings management
+├── css/
+│   ├── popup.css        ← Popup styling
+│   └── settings.css     ← Settings styling
+└── README.md            ← Installation & usage guide
+```
+
+**How It Works**:
+1. User visits Canvas assignment page
+2. Extension icon appears in toolbar
+3. User clicks icon → popup loads
+4. Content script extracts assignment data (title, description)
+5. Popup sends to `/api/assignment/complete` with auth token
+6. Backend returns AI draft
+7. User can copy draft or view full version
+8. All drafts saved to account history
 
 ### Phase 5: Testing (2 hours)
 - Test extension reads page correctly
