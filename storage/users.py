@@ -61,18 +61,19 @@ def init_users_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            google_id     TEXT PRIMARY KEY,
-            email         TEXT UNIQUE NOT NULL,
-            name          TEXT,
-            picture       TEXT,
-            canvas_user   TEXT,
-            canvas_pass   BYTEA,
-            canvas_linked INTEGER DEFAULT 0,
-            is_admin      INTEGER DEFAULT 0,
-            is_banned     INTEGER DEFAULT 0,
-            sync_status   TEXT DEFAULT 'never',
-            sync_at       TEXT,
-            created_at    TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+            google_id           TEXT PRIMARY KEY,
+            email               TEXT UNIQUE NOT NULL,
+            name                TEXT,
+            picture             TEXT,
+            canvas_api_token    BYTEA,
+            canvas_linked       INTEGER DEFAULT 0,
+            is_admin            INTEGER DEFAULT 0,
+            is_banned           INTEGER DEFAULT 0,
+            sync_status         TEXT DEFAULT 'never',
+            sync_at             TEXT,
+            last_sync_at        TEXT,
+            last_accessed_at    TEXT,
+            created_at          TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
         )
     """)
     cur.execute("""
@@ -87,13 +88,23 @@ def init_users_db():
 
     # Add missing columns (safe to run on existing DB)
     for col, definition in [
-        ("is_admin",    "INTEGER DEFAULT 0"),
-        ("is_banned",   "INTEGER DEFAULT 0"),
-        ("sync_status", "TEXT DEFAULT 'never'"),
-        ("sync_at",     "TEXT"),
+        ("is_admin",        "INTEGER DEFAULT 0"),
+        ("is_banned",       "INTEGER DEFAULT 0"),
+        ("sync_status",     "TEXT DEFAULT 'never'"),
+        ("sync_at",         "TEXT"),
+        ("last_sync_at",    "TEXT"),
+        ("last_accessed_at","TEXT"),
+        ("canvas_api_token","BYTEA"),
     ]:
         try:
             cur.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {definition}")
+        except Exception:
+            pass
+
+    # Drop old password columns if they exist (optional, for cleanup)
+    for col in ["canvas_user", "canvas_pass"]:
+        try:
+            cur.execute(f"ALTER TABLE users DROP COLUMN IF EXISTS {col}")
         except Exception:
             pass
 
@@ -124,29 +135,44 @@ def get_user(google_id: str):
     return dict(row) if row else None
 
 
-def set_canvas_credentials(google_id: str, username: str, password: str):
+def set_canvas_api_token(google_id: str, api_token: str):
+    """Store Canvas API token (encrypted with Fernet)."""
     f = _get_fernet()
-    encrypted = f.encrypt(password.encode())
+    encrypted = f.encrypt(api_token.encode())
     conn = get_users_conn()
     _exec(conn, """
-        UPDATE users SET canvas_user=?, canvas_pass=?, canvas_linked=1
+        UPDATE users SET canvas_api_token=?, canvas_linked=1,
+                        last_accessed_at=to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
         WHERE google_id=?
-    """, (username, psycopg2.Binary(encrypted), google_id))
+    """, (psycopg2.Binary(encrypted), google_id))
     conn.commit()
     conn.close()
 
 
-def get_canvas_credentials(google_id: str):
+def get_canvas_api_token(google_id: str) -> str:
+    """Retrieve and decrypt Canvas API token."""
     conn = get_users_conn()
-    cur = _exec(conn, "SELECT canvas_user, canvas_pass FROM users WHERE google_id=?", (google_id,))
+    cur = _exec(conn, "SELECT canvas_api_token FROM users WHERE google_id=?", (google_id,))
     row = cur.fetchone()
     conn.close()
-    if not row or not row["canvas_user"]:
-        return None, None
+    if not row or not row["canvas_api_token"]:
+        return ""
     f = _get_fernet()
-    raw_pass = bytes(row["canvas_pass"])
-    password = f.decrypt(raw_pass).decode()
-    return row["canvas_user"], password
+    try:
+        encrypted_token = bytes(row["canvas_api_token"])
+        token = f.decrypt(encrypted_token).decode()
+        return token
+    except Exception:
+        return ""
+
+
+def get_canvas_credentials(google_id: str):
+    """
+    Legacy function for backward compatibility.
+    Returns (username, password) tuple - always returns (None, "") now.
+    New code should use get_canvas_api_token() instead.
+    """
+    return None, ""
 
 
 def save_user_session(google_id: str, cookies: list, api_token: str):
@@ -221,6 +247,18 @@ def update_sync_status(google_id: str, status: str):
     _exec(conn,
         "UPDATE users SET sync_status=?, sync_at=to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE google_id=?",
         (status, google_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_user_last_sync(google_id: str):
+    """Update last_sync_at and last_accessed_at to now."""
+    conn = get_users_conn()
+    _exec(conn,
+        "UPDATE users SET last_sync_at=to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), "
+        "last_accessed_at=to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE google_id=?",
+        (google_id,)
     )
     conn.commit()
     conn.close()

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Cleanup — Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- Topbar -->
+  <header class="bg-gray-900 border-b border-gray-800 h-14 flex items-center px-6 gap-4">
+    <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center flex-shrink-0">
+      <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+    </div>
+    <span class="font-bold text-white">Canvas AI — Admin</span>
+    <div class="flex-1"></div>
+    <a href="/admin/" class="text-xs text-gray-400 hover:text-blue-400 transition-colors">Dashboard</a>
+    <a href="/admin/logout" class="text-xs text-gray-400 hover:text-red-400 transition-colors ml-4">Sign out</a>
+  </header>
+
+  <div class="max-w-4xl mx-auto px-6 py-8 space-y-6">
+
+    <!-- Title -->
+    <div>
+      <h1 class="text-3xl font-bold text-white">Data Cleanup</h1>
+      <p class="text-sm text-gray-400 mt-1">Delete old Canvas data for inactive users</p>
+    </div>
+
+    <!-- Info -->
+    <div class="bg-blue-950 border border-blue-800 rounded-lg px-4 py-3 text-sm text-blue-200">
+      <strong>Retention Policy:</strong> Canvas data is automatically deleted for users who haven't synced in 7 days. You can manually trigger cleanup here.
+    </div>
+
+    <!-- Cleanup Controls -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <h3 class="font-semibold text-white mb-4">Manual Cleanup</h3>
+      <form method="POST" onsubmit="return confirm('Run cleanup now? This will delete data for inactive users.')">
+        <button type="submit" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition">
+          Run Cleanup Now
+        </button>
+      </form>
+    </div>
+
+    <!-- Results -->
+    {% if result %}
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <h3 class="font-semibold text-white mb-4">Results</h3>
+      <div class="space-y-3 text-sm">
+        <div class="flex justify-between text-gray-300">
+          <span>Timestamp:</span>
+          <code class="text-gray-400">{{ result.timestamp }}</code>
+        </div>
+        <div class="flex justify-between text-gray-300">
+          <span>Retention Period:</span>
+          <span>{{ result.retention_days }} days</span>
+        </div>
+        <div class="flex justify-between text-gray-300 pb-4 border-b border-gray-800">
+          <span>Cleanup Enabled:</span>
+          <span>{% if result.enabled %}<span class="text-green-400">✓ Yes</span>{% else %}<span class="text-gray-500">✗ No</span>{% endif %}</span>
+        </div>
+
+        {% if result.enabled %}
+        <div class="mt-4 space-y-4">
+          <div class="bg-gray-800 p-4 rounded">
+            <h4 class="font-semibold text-white mb-2">Inactive Users Deleted</h4>
+            <div class="text-xs space-y-1 text-gray-400">
+              <div>Users: <strong class="text-gray-200">{{ result.inactive_users.deleted_users }}</strong></div>
+              <div>Records: <strong class="text-gray-200">{{ result.inactive_users.deleted_records }}</strong></div>
+              <div>Space freed: <strong class="text-gray-200">{{ (result.inactive_users.freed_bytes / 1024 / 1024) | round(1) }} MB</strong></div>
+            </div>
+          </div>
+
+          <div class="bg-gray-800 p-4 rounded">
+            <h4 class="font-semibold text-white mb-2">Old Files Deleted</h4>
+            <div class="text-xs space-y-1 text-gray-400">
+              <div>Files: <strong class="text-gray-200">{{ result.old_files.files_deleted }}</strong></div>
+              <div>Space freed: <strong class="text-gray-200">{{ (result.old_files.bytes_freed / 1024 / 1024) | round(1) }} MB</strong></div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- CLI Instructions -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <h4 class="font-semibold text-white mb-3">Command Line</h4>
+      <p class="text-gray-400 text-sm mb-3">Run cleanup from terminal:</p>
+      <div class="bg-gray-950 border border-gray-800 p-4 rounded overflow-auto">
+        <code class="text-gray-300 font-mono text-sm">flask --app web.app cleanup</code>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
