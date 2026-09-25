@@ -100,7 +100,7 @@ def init_db():
     statements = [
         # ── NEW TABLES FOR EXTENSION ARCHITECTURE ──────────────────────────────
         """
-        CREATE TABLE IF NOT EXISTS ai_completions (
+        CREATE TABLE IF NOT EXISTS cv_ai_completions (
             id SERIAL PRIMARY KEY,
             google_id TEXT NOT NULL,
             course_id BIGINT,
@@ -110,23 +110,21 @@ def init_db():
             context_summary TEXT,
             ai_draft TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW(),
-            FOREIGN KEY (google_id) REFERENCES users(google_id) ON DELETE CASCADE
+            updated_at TIMESTAMP DEFAULT NOW()
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS extension_auth_tokens (
+        CREATE TABLE IF NOT EXISTS cv_extension_auth_tokens (
             id SERIAL PRIMARY KEY,
             google_id TEXT NOT NULL UNIQUE,
             auth_token VARCHAR(64) NOT NULL UNIQUE,
             created_at TIMESTAMP DEFAULT NOW(),
-            last_used_at TIMESTAMP,
-            FOREIGN KEY (google_id) REFERENCES users(google_id) ON DELETE CASCADE
+            last_used_at TIMESTAMP
         )
         """,
         # ── OLD CANVAS TABLES (DEPRECATED - kept for reference) ────────────────
         """
-        CREATE TABLE IF NOT EXISTS courses (
+        CREATE TABLE IF NOT EXISTS cv_courses (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             name TEXT,
@@ -139,7 +137,7 @@ def init_db():
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS assignments (
+        CREATE TABLE IF NOT EXISTS cv_assignments (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             course_id BIGINT,
@@ -156,7 +154,7 @@ def init_db():
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS submissions (
+        CREATE TABLE IF NOT EXISTS cv_submissions (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             assignment_id BIGINT,
@@ -175,7 +173,7 @@ def init_db():
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS files (
+        CREATE TABLE IF NOT EXISTS cv_files (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             course_id BIGINT,
@@ -191,7 +189,7 @@ def init_db():
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS modules (
+        CREATE TABLE IF NOT EXISTS cv_modules (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             course_id BIGINT,
@@ -203,7 +201,7 @@ def init_db():
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS module_items (
+        CREATE TABLE IF NOT EXISTS cv_module_items (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             module_id BIGINT,
@@ -219,7 +217,7 @@ def init_db():
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS pages (
+        CREATE TABLE IF NOT EXISTS cv_pages (
             google_id TEXT NOT NULL,
             id BIGINT NOT NULL,
             course_id BIGINT,
@@ -237,7 +235,7 @@ def init_db():
         conn.execute(stmt)
 
     # Add synced_at column to existing tables (safe to run on existing DB)
-    for table in ["courses", "assignments", "submissions", "files", "modules", "module_items", "pages"]:
+    for table in ["cv_courses", "cv_assignments", "cv_submissions", "cv_files", "cv_modules", "cv_module_items", "cv_pages"]:
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS synced_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))")
         except Exception:
@@ -256,7 +254,7 @@ def upsert_course(course: dict):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO courses (google_id, id, name, course_code, enrollment_term_id, workflow_state, raw, synced_at)
+        INSERT INTO cv_courses (google_id, id, name, course_code, enrollment_term_id, workflow_state, raw, synced_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
         ON CONFLICT (google_id, id) DO UPDATE SET
             name               = EXCLUDED.name,
@@ -276,7 +274,7 @@ def upsert_assignment(a: dict):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO assignments
+        INSERT INTO cv_assignments
             (google_id, id, course_id, name, description, due_at,
              points_possible, submission_types, workflow_state,
              has_submitted_submissions, synced_at, raw)
@@ -309,7 +307,7 @@ def upsert_submission(s: dict, course_id: int):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO submissions
+        INSERT INTO cv_submissions
             (google_id, id, assignment_id, course_id, user_id,
              submitted_at, score, grade, workflow_state,
              submission_type, body, url, synced_at, raw)
@@ -343,7 +341,7 @@ def upsert_file(f: dict, course_id: int):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO files
+        INSERT INTO cv_files
             (google_id, id, course_id, display_name, filename,
              content_type, url, size, local_path, synced_at, raw)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
@@ -354,7 +352,7 @@ def upsert_file(f: dict, course_id: int):
             content_type = EXCLUDED.content_type,
             url          = EXCLUDED.url,
             size         = EXCLUDED.size,
-            local_path   = COALESCE(NULLIF(EXCLUDED.local_path, ''), files.local_path),
+            local_path   = COALESCE(NULLIF(EXCLUDED.local_path, ''), cv_files.local_path),
             synced_at    = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             raw          = EXCLUDED.raw
     """, (
@@ -372,7 +370,7 @@ def upsert_module(m: dict, course_id: int):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO modules (google_id, id, course_id, name, position, synced_at, raw)
+        INSERT INTO cv_modules (google_id, id, course_id, name, position, synced_at, raw)
         VALUES (%s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
             course_id = EXCLUDED.course_id,
@@ -390,7 +388,7 @@ def upsert_module_item(item: dict, module_id: int, course_id: int):
     gid = _gid()
     conn = get_conn()
     conn.execute("""
-        INSERT INTO module_items
+        INSERT INTO cv_module_items
             (google_id, id, module_id, course_id, title, type,
              content_id, url, page_url, synced_at, raw)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
@@ -419,7 +417,7 @@ def upsert_page(p: dict, course_id: int):
     page_id = p.get("page_id") or p.get("id", 0)
     conn = get_conn()
     conn.execute("""
-        INSERT INTO pages
+        INSERT INTO cv_pages
             (google_id, id, course_id, title, body, url, updated_at, synced_at, raw)
         VALUES (%s, %s, %s, %s, %s, %s, %s, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), %s)
         ON CONFLICT (google_id, id) DO UPDATE SET
@@ -446,7 +444,7 @@ def get_courses() -> list:
     gid = _gid()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM courses WHERE google_id = %s ORDER BY name", (gid,)
+        "SELECT * FROM cv_courses WHERE google_id = %s ORDER BY name", (gid,)
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -457,12 +455,12 @@ def get_assignments(course_id: int = None) -> list:
     conn = get_conn()
     if course_id:
         rows = conn.execute(
-            "SELECT * FROM assignments WHERE google_id = %s AND course_id = %s ORDER BY due_at",
+            "SELECT * FROM cv_assignments WHERE google_id = %s AND course_id = %s ORDER BY due_at",
             (gid, course_id)
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM assignments WHERE google_id = %s ORDER BY due_at", (gid,)
+            "SELECT * FROM cv_assignments WHERE google_id = %s ORDER BY due_at", (gid,)
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -472,7 +470,7 @@ def get_assignment(assignment_id: int):
     gid = _gid()
     conn = get_conn()
     row = conn.execute(
-        "SELECT * FROM assignments WHERE google_id = %s AND id = %s",
+        "SELECT * FROM cv_assignments WHERE google_id = %s AND id = %s",
         (gid, assignment_id)
     ).fetchone()
     conn.close()
@@ -483,7 +481,7 @@ def get_submission(assignment_id: int):
     gid = _gid()
     conn = get_conn()
     row = conn.execute(
-        "SELECT * FROM submissions WHERE google_id = %s AND assignment_id = %s",
+        "SELECT * FROM cv_submissions WHERE google_id = %s AND assignment_id = %s",
         (gid, assignment_id)
     ).fetchone()
     conn.close()
@@ -494,7 +492,7 @@ def get_modules(course_id: int) -> list:
     gid = _gid()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM modules WHERE google_id = %s AND course_id = %s ORDER BY position",
+        "SELECT * FROM cv_modules WHERE google_id = %s AND course_id = %s ORDER BY position",
         (gid, course_id)
     ).fetchall()
     conn.close()
@@ -505,7 +503,7 @@ def get_module_items(module_id: int) -> list:
     gid = _gid()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM module_items WHERE google_id = %s AND module_id = %s ORDER BY id",
+        "SELECT * FROM cv_module_items WHERE google_id = %s AND module_id = %s ORDER BY id",
         (gid, module_id)
     ).fetchall()
     conn.close()
@@ -516,7 +514,7 @@ def get_files(course_id: int) -> list:
     gid = _gid()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM files WHERE google_id = %s AND course_id = %s",
+        "SELECT * FROM cv_files WHERE google_id = %s AND course_id = %s",
         (gid, course_id)
     ).fetchall()
     conn.close()
@@ -535,7 +533,7 @@ def save_ai_completion(assignment_title: str, assignment_description: str,
     gid = _gid()
     conn = get_conn()
     cur = conn.execute("""
-        INSERT INTO ai_completions
+        INSERT INTO cv_ai_completions
         (google_id, course_id, assignment_id, assignment_title,
          assignment_description, context_summary, ai_draft,
          created_at, updated_at)
@@ -561,7 +559,7 @@ def get_user_completions(limit: int = 20, offset: int = 0) -> tuple:
 
     # Get total count
     total_row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM ai_completions WHERE google_id = %s",
+        "SELECT COUNT(*) as cnt FROM cv_ai_completions WHERE google_id = %s",
         (gid,)
     ).fetchone()
     total = total_row['cnt'] if total_row else 0
@@ -570,7 +568,7 @@ def get_user_completions(limit: int = 20, offset: int = 0) -> tuple:
     rows = conn.execute("""
         SELECT id, assignment_title, course_id, assignment_id,
                created_at, SUBSTRING(ai_draft FROM 1 FOR 100) as preview
-        FROM ai_completions
+        FROM cv_ai_completions
         WHERE google_id = %s
         ORDER BY created_at DESC
         LIMIT %s OFFSET %s
@@ -585,7 +583,7 @@ def get_completion(completion_id: int) -> dict:
     gid = _gid()
     conn = get_conn()
     row = conn.execute(
-        "SELECT * FROM ai_completions WHERE id = %s AND google_id = %s",
+        "SELECT * FROM cv_ai_completions WHERE id = %s AND google_id = %s",
         (completion_id, gid)
     ).fetchone()
     conn.close()
@@ -599,12 +597,12 @@ def delete_completion(completion_id: int) -> bool:
 
     # Verify ownership before deleting
     owned = conn.execute(
-        "SELECT id FROM ai_completions WHERE id = %s AND google_id = %s",
+        "SELECT id FROM cv_ai_completions WHERE id = %s AND google_id = %s",
         (completion_id, gid)
     ).fetchone()
 
     if owned:
-        conn.execute("DELETE FROM ai_completions WHERE id = %s", (completion_id,))
+        conn.execute("DELETE FROM cv_ai_completions WHERE id = %s", (completion_id,))
         conn.commit()
         conn.close()
         return True
@@ -623,7 +621,7 @@ def cleanup_old_completions(days: int = 30) -> int:
 
     # Delete completions older than N days
     cur = conn.execute("""
-        DELETE FROM ai_completions
+        DELETE FROM cv_ai_completions
         WHERE google_id = %s
         AND created_at < NOW() - INTERVAL '%s days'
     """, (gid, days))
@@ -640,9 +638,9 @@ def _add_extension_indexes():
     """Create indexes for extension tables (called by init_db)."""
     conn = get_conn()
     try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_completions_user ON ai_completions(google_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_completions_created ON ai_completions(created_at)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ext_auth_token ON extension_auth_tokens(auth_token)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_completions_user ON cv_ai_completions(google_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_completions_created ON cv_ai_completions(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ext_auth_token ON cv_extension_auth_tokens(auth_token)")
         conn.commit()
     except Exception:
         pass
